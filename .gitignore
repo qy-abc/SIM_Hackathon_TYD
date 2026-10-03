@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.db
+.env
+# the answer key must never ship to the agent runtime; the generated golden month is reproducible from the seed
+data/golden/

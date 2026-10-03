@@ -1,0 +1,12 @@
+# Commission plan v2 (promo bonus raised mid-September). Rates in basis points (300 = 3%), money in cents.
+version: 2
+effective_from: 2026-09-15
+base_rate_bp: 300
+tier_threshold_cents: 3000000   # S$30,000 of monthly net sales
+tier_rate_bp: 500               # applies to the part above the threshold
+discount_threshold_pct: 10
+discount_penalty_bp: 100        # -1 percentage point on that order
+promo_brand: Slumber
+promo_category: mattress
+promo_bonus_cents: 8000         # S$80 per promo-brand mattress
+return_window_days: 14

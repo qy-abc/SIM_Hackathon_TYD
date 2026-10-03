@@ -1,0 +1,12 @@
+# Commission plan v1. Rates in basis points (300 = 3%), money in cents.
+version: 1
+effective_from: 2026-01-01
+base_rate_bp: 300
+tier_threshold_cents: 3000000   # S$30,000 of monthly net sales
+tier_rate_bp: 500               # applies to the part above the threshold
+discount_threshold_pct: 10
+discount_penalty_bp: 100        # -1 percentage point on that order
+promo_brand: Slumber
+promo_category: mattress
+promo_bonus_cents: 5000         # S$50 per promo-brand mattress
+return_window_days: 14
