@@ -66,8 +66,11 @@ GIVEN = ("Ah Kow", "Mei Hua", "Boon Huat", "Siew Ling", "Wei Ming", "Kok Leong",
 OTHER_NAMES = ("Nur Aisyah", "Muhammad Faizal", "Rajesh Kumar", "Priyanka Menon", "Daniel Fernandez")
 METHODS = ("PayNow", "NETS", "Visa", "Mastercard", "Atome", "Cash")
 
-# Card-based methods that are batched into daily settlement lines.
-CARD_METHODS = {"Visa", "Mastercard", "Atome"}
+# Visa/Mastercard are batched into daily net card-settlement lines.
+# Atome is a BNPL instalment provider: no deposit/balance rows; instead a single
+# "INSTALMENT PAYOUT" credit lands 2 days after paid_on, net of INSTALMENT_FEE_BP.
+CARD_METHODS = {"Visa", "Mastercard"}
+ATOME_METHOD = "Atome"
 
 _SGT = ZoneInfo("Asia/Singapore")
 
@@ -221,119 +224,161 @@ def _bp_fee(amount_cents: int, fee_bp: int) -> int:
 
 
 def _fmt_cents(cents: int) -> str:
-    """Format integer cents as a decimal string with 2 decimal places."""
-    return f"{cents / 100:.2f}"
+    """Format integer cents as 'd.cc' with no float arithmetic."""
+    return f"{cents // 100}.{cents % 100:02d}"
 
 
 def _bank_ref(order_id: str, suffix: str = "") -> str:
     return f"ORD{order_id}{suffix}"
 
 
-def bank_split_order_ids(month: dict, seed: int = DEFAULT_SEED) -> frozenset[str]:
-    """
-    Return the set of order_ids whose balance payment was split across two methods.
-    This is deterministic for a given seed and is exported for testing.
-    """
-    rng = random.Random(seed + 2)
-    eligible_for_split = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.paid_on is not None
-        and o.paid_on.strftime("%Y-%m") == MONTH
-        and (o.net_total_cents - o.net_total_cents * 30 // 100) > 0
-    ]
-    split_payment_orders = rng.sample(eligible_for_split, k=min(8, len(eligible_for_split)))
-    return frozenset(o.order_id for o in split_payment_orders)
+# ---------------------------------------------------------------------------
+# Shared context builder — single source of truth for all bank picks.
+# Called by build_bank_rows (live) and the exported test helpers (replay).
+# ---------------------------------------------------------------------------
 
+def _build_bank_context(month: dict, rng: random.Random) -> dict:
+    """
+    Compute all derived sets/maps needed to build the bank statement:
+      split_order_ids   – 8 POS orders whose balance is split into two method legs
+      split_alt         – {order_id: alt_method} for the second leg of each split
+      ambig_ids         – 4 POS orders given ambiguous descriptions / blank references
+      ambig_map         – {order_id: (description, reference)}
+      atome_order_ids   – every order paid via Atome (gets an INSTALMENT PAYOUT row)
+      events            – all deposit/balance events after split expansion
+      card_by_date      – {date: gross_cents} for Visa/MC card events (not Atome)
 
-def bank_ambig_order_ids(month: dict, seed: int = DEFAULT_SEED) -> frozenset[str]:
+    The rng must be initialised to seed+2 before calling.
     """
-    Return the 4 order_ids assigned ambiguous bank references (no ORD prefix).
-    Exported so tests can exclude them from per-order credit checks.
-    """
-    rng = random.Random(seed + 2)
-    # Must replay the same RNG state as build_bank_rows up to the ambig sample.
-    eligible_for_split = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.paid_on is not None
-        and o.paid_on.strftime("%Y-%m") == MONTH
-        and (o.net_total_cents - o.net_total_cents * 30 // 100) > 0
-    ]
-    split_payment_orders = rng.sample(eligible_for_split, k=min(8, len(eligible_for_split)))
-    split_order_ids = {o.order_id for o in split_payment_orders}
-    # Replay the alt-method choices to advance RNG.
-    all_events: list[tuple[date, str, str, str, int]] = []
     all_orders: list[Order] = [*month["pos"], *month["roadshow_only"], *month["prior"]]
+
+    # ------------------------------------------------------------------ #
+    # Atome orders – these get NO deposit/balance rows; handled separately
+    # ------------------------------------------------------------------ #
+    atome_order_ids: set[str] = {
+        o.order_id for o in all_orders
+        if o.payment_method == ATOME_METHOD
+    }
+
+    # ------------------------------------------------------------------ #
+    # Raw deposit + balance events (skip Atome orders entirely)           #
+    # ------------------------------------------------------------------ #
+    raw_events: list[tuple[date, str, str, str, int]] = []
     for o in all_orders:
+        if o.order_id in atome_order_ids:
+            continue  # Atome → instalment payout, not deposit/balance
         dep = o.net_total_cents * 30 // 100
         if o.created_on.strftime("%Y-%m") == MONTH:
-            all_events.append((o.created_on, o.order_id, "deposit", o.payment_method, dep))
+            raw_events.append((o.created_on, o.order_id, "deposit", o.payment_method, dep))
         if o.paid_on is not None and o.paid_on.strftime("%Y-%m") == MONTH:
             bal = o.net_total_cents - dep
             if bal > 0:
-                all_events.append((o.paid_on, o.order_id, "balance", o.payment_method, bal))
-    for ev_date, oid, kind, method, amount in sorted(all_events, key=lambda e: (e[0], e[1], e[2])):
-        if oid in split_order_ids and kind == "balance":
-            rng.choice([m for m in METHODS if m != method])  # consume RNG call
-    # Now the rng state matches the ambig sample in build_bank_rows.
-    ambig_pool = [
+                raw_events.append((o.paid_on, o.order_id, "balance", o.payment_method, bal))
+
+    # ------------------------------------------------------------------ #
+    # Split-payment pick: 8 non-scripted, non-Atome POS orders            #
+    # ------------------------------------------------------------------ #
+    eligible_for_split = [
         o for o in month["pos"]
         if o.order_id not in _scripted_ids()
-        and o.order_id not in split_order_ids
-        and any(oid == o.order_id for (_, oid, _, _, _) in all_events)
+        and o.order_id not in atome_order_ids
+        and o.paid_on is not None
+        and o.paid_on.strftime("%Y-%m") == MONTH
+        and (o.net_total_cents - o.net_total_cents * 30 // 100) > 0
     ]
-    ambig_orders = rng.sample(ambig_pool, k=min(4, len(ambig_pool)))
-    return frozenset(o.order_id for o in ambig_orders)
+    split_payment_orders = rng.sample(eligible_for_split, k=min(8, len(eligible_for_split)))
+    split_order_ids: set[str] = {o.order_id for o in split_payment_orders}
 
-
-def bank_card_gross_by_date(month: dict, seed: int = DEFAULT_SEED) -> dict[str, int]:
-    """
-    Return a dict mapping ISO date string → total gross card cents for that day,
-    exactly as accumulated inside build_bank_rows.  Used to verify CARD SETTLEMENT lines.
-    """
-    rng = random.Random(seed + 2)
-    # Re-run the full bank row build in a lightweight mode: just track card_by_date.
-    all_orders: list[Order] = [*month["pos"], *month["roadshow_only"], *month["prior"]]
-
+    # Expand split-order balance events into two legs, recording alt method.
+    split_alt: dict[str, str] = {}
     events: list[tuple[date, str, str, str, int]] = []
-    for o in all_orders:
-        dep = o.net_total_cents * 30 // 100
-        if o.created_on.strftime("%Y-%m") == MONTH:
-            events.append((o.created_on, o.order_id, "deposit", o.payment_method, dep))
-        if o.paid_on is not None and o.paid_on.strftime("%Y-%m") == MONTH:
-            bal = o.net_total_cents - dep
-            if bal > 0:
-                events.append((o.paid_on, o.order_id, "balance", o.payment_method, bal))
-
-    eligible_for_split = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.paid_on is not None
-        and o.paid_on.strftime("%Y-%m") == MONTH
-        and (o.net_total_cents - o.net_total_cents * 30 // 100) > 0
-    ]
-    split_payment_orders = rng.sample(eligible_for_split, k=min(8, len(eligible_for_split)))
-    split_order_ids = {o.order_id for o in split_payment_orders}
-
-    filtered: list[tuple[date, str, str, str, int]] = []
-    for ev in sorted(events, key=lambda e: (e[0], e[1], e[2])):
+    for ev in sorted(raw_events, key=lambda e: (e[0], e[1], e[2])):
         ev_date, oid, kind, method, amount = ev
         if oid in split_order_ids and kind == "balance":
             first = amount // 2
             second = amount - first
             alt = rng.choice([m for m in METHODS if m != method])
-            filtered.append((ev_date, oid, "balance_part1", method, first))
-            filtered.append((ev_date, oid, "balance_part2", alt, second))
+            split_alt[oid] = alt
+            events.append((ev_date, oid, "balance_part1", method, first))
+            events.append((ev_date, oid, "balance_part2", alt, second))
         else:
-            filtered.append(ev)
+            events.append(ev)
 
-    card_by_date: dict[str, int] = {}
-    for ev_date, oid, kind, method, amount in filtered:
-        if kind != "refund" and method in CARD_METHODS:
-            card_by_date[ev_date.isoformat()] = card_by_date.get(ev_date.isoformat(), 0) + amount
+    # ------------------------------------------------------------------ #
+    # Ambiguous-reference pick: 4 non-scripted, non-split, non-Atome POS  #
+    # orders that have at least one NON-CARD event (so the description     #
+    # actually appears as a row rather than disappearing into CARD batch). #
+    # ------------------------------------------------------------------ #
+    non_card_visible_oids = {
+        oid for (_, oid, _, method, _) in events
+        if method not in CARD_METHODS
+    }
+    ambig_pool = [
+        o for o in month["pos"]
+        if o.order_id not in _scripted_ids()
+        and o.order_id not in split_order_ids
+        and o.order_id not in atome_order_ids
+        and o.order_id in non_card_visible_oids
+    ]
+    ambig_orders = rng.sample(ambig_pool, k=min(4, len(ambig_pool)))
+    ambig_ids: set[str] = {o.order_id for o in ambig_orders}
 
-    return card_by_date
+    _AMBIG_DESCS = [
+        ("SOFA LIM", ""),
+        ("FURN PAYMENT", "PAY"),
+        ("", ""),
+        ("DEPOSIT TAN", ""),
+    ]
+    ambig_map: dict[str, tuple[str, str]] = {
+        o.order_id: pair for o, pair in zip(ambig_orders, _AMBIG_DESCS)
+    }
+
+    # ------------------------------------------------------------------ #
+    # Card gross by date (Visa/Mastercard only, not Atome)                #
+    # ------------------------------------------------------------------ #
+    card_by_date: dict[date, int] = {}
+    for ev_date, oid, kind, method, amount in events:
+        if method in CARD_METHODS:
+            card_by_date[ev_date] = card_by_date.get(ev_date, 0) + amount
+
+    return {
+        "all_orders": all_orders,
+        "atome_order_ids": atome_order_ids,
+        "split_order_ids": split_order_ids,
+        "split_alt": split_alt,
+        "ambig_ids": ambig_ids,
+        "ambig_map": ambig_map,
+        "events": events,
+        "card_by_date": card_by_date,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public helpers – delegate entirely to _build_bank_context
+# ---------------------------------------------------------------------------
+
+def bank_split_order_ids(month: dict, seed: int = DEFAULT_SEED) -> frozenset[str]:
+    """Return the 8 order_ids whose balance was split across two payment methods."""
+    ctx = _build_bank_context(month, random.Random(seed + 2))
+    return frozenset(ctx["split_order_ids"])
+
+
+def bank_ambig_order_ids(month: dict, seed: int = DEFAULT_SEED) -> frozenset[str]:
+    """Return the 4 order_ids assigned ambiguous bank references."""
+    ctx = _build_bank_context(month, random.Random(seed + 2))
+    return frozenset(ctx["ambig_ids"])
+
+
+def bank_card_gross_by_date(month: dict, seed: int = DEFAULT_SEED) -> dict[str, int]:
+    """Return {ISO date → total gross Visa/MC cents} for each card-settlement day."""
+    ctx = _build_bank_context(month, random.Random(seed + 2))
+    return {d.isoformat(): g for d, g in ctx["card_by_date"].items()}
+
+
+def bank_atome_order_ids(month: dict) -> frozenset[str]:
+    """Return all order_ids paid via Atome (each gets one INSTALMENT PAYOUT row)."""
+    all_orders: list[Order] = [*month["pos"], *month["roadshow_only"], *month["prior"]]
+    return frozenset(o.order_id for o in all_orders if o.payment_method == ATOME_METHOD)
 
 
 def build_bank_rows(month: dict, rng: random.Random) -> list[dict]:
@@ -342,208 +387,117 @@ def build_bank_rows(month: dict, rng: random.Random) -> list[dict]:
 
     Columns: date, value_date, description, reference, debit, credit, balance.
     All money is integer cents internally; the running balance is computed last.
+
+    Atome orders: no deposit/balance rows; one INSTALMENT PAYOUT credit on paid_on+2.
+    Visa/Mastercard: batched into a daily CARD SETTLEMENT credit, net of CARD_SETTLEMENT_FEE_BP.
     """
-    # ------------------------------------------------------------------ #
-    # 1. Collect all September golden orders (POS + roadshow + prior)     #
-    # ------------------------------------------------------------------ #
-    all_orders: list[Order] = [*month["pos"], *month["roadshow_only"], *month["prior"]]
-
-    # Orders whose payment date falls in September.
-    # An order has paid_on set only when fully paid; orders with only deposit have paid_on=None.
-    # We reconstruct deposit dates from created_on and balance dates from paid_on.
-    # For the bank we need to know: deposit_date and, if fully paid, balance_date.
-
-    # Build a ledger event list: (date, order_id, kind, method, amount_cents)
-    # kind: "deposit" | "balance"
-    events: list[tuple[date, str, str, str, int]] = []
-
-    for o in all_orders:
-        # Deposit is always due on created_on (30% of net).
-        deposit_cents = o.net_total_cents * 30 // 100
-        deposit_date = o.created_on
-
-        # Only include September dates.
-        if deposit_date.strftime("%Y-%m") == MONTH:
-            events.append((deposit_date, o.order_id, "deposit", o.payment_method, deposit_cents))
-
-        if o.paid_on is not None and o.paid_on.strftime("%Y-%m") == MONTH:
-            balance_cents = o.net_total_cents - deposit_cents
-            if balance_cents > 0:
-                events.append((o.paid_on, o.order_id, "balance", o.payment_method, balance_cents))
+    ctx = _build_bank_context(month, rng)
+    all_orders   = ctx["all_orders"]
+    atome_ids    = ctx["atome_order_ids"]
+    split_ids    = ctx["split_order_ids"]
+    ambig_map    = ctx["ambig_map"]
+    events       = ctx["events"]
+    card_by_date = ctx["card_by_date"]
 
     # ------------------------------------------------------------------ #
-    # 2. Partial / multi-method payments (8 scripted anomalies)           #
-    # ------------------------------------------------------------------ #
-    # Pick 8 fully-paid POS orders that are NOT in the scripted anomaly set,
-    # are in MONTH, and have a balance payment (net > deposit).
-    eligible_for_split = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.paid_on is not None
-        and o.paid_on.strftime("%Y-%m") == MONTH
-        and (o.net_total_cents - o.net_total_cents * 30 // 100) > 0
-    ]
-    split_payment_orders = rng.sample(eligible_for_split, k=min(8, len(eligible_for_split)))
-    split_order_ids = {o.order_id for o in split_payment_orders}
-
-    # For each split order, replace its single balance event with two partial lines.
-    filtered_events: list[tuple[date, str, str, str, int]] = []
-    for ev in events:
-        ev_date, oid, kind, method, amount = ev
-        if oid in split_order_ids and kind == "balance":
-            # Split into two methods: first partial half (rounded down), second covers rest.
-            first_cents = amount // 2
-            second_cents = amount - first_cents
-            alt_method = rng.choice([m for m in METHODS if m != method])
-            filtered_events.append((ev_date, oid, "balance_part1", method, first_cents))
-            filtered_events.append((ev_date, oid, "balance_part2", alt_method, second_cents))
-        else:
-            filtered_events.append(ev)
-    events = filtered_events
-
-    # ------------------------------------------------------------------ #
-    # 3. Ambiguous references (4 scripted)                                #
-    # ------------------------------------------------------------------ #
-    # Pick 4 non-scripted, non-split orders and overwrite their description/reference.
-    ambig_pool = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.order_id not in split_order_ids
-        and any(oid == o.order_id for (_, oid, _, _, _) in events)
-    ]
-    ambig_orders = rng.sample(ambig_pool, k=min(4, len(ambig_pool)))
-    ambig_ids = {o.order_id for o in ambig_orders}
-
-    # Ambiguous descriptions: generic surname, blank, etc.
-    ambig_descs = [
-        ("SOFA LIM", ""),
-        ("FURN PAYMENT", "PAY"),
-        ("", ""),
-        ("DEPOSIT TAN", ""),
-    ]
-    ambig_map: dict[str, tuple[str, str]] = {}
-    for o, (desc, ref) in zip(ambig_orders, ambig_descs):
-        ambig_map[o.order_id] = (desc, ref)
-
-    # ------------------------------------------------------------------ #
-    # 4. Refund lines for RETURNED_ORDER (1012) and PRIOR_MONTH_ORDER (0987) #
+    # Refund lines for RETURNED_ORDER and PRIOR_MONTH_ORDER               #
     # ------------------------------------------------------------------ #
     refund_events: list[tuple[date, str, str, str, int]] = []
     for o in all_orders:
         if o.order_id in (RETURNED_ORDER, PRIOR_MONTH_ORDER) and o.refunded_on is not None:
             if o.refunded_on.strftime("%Y-%m") == MONTH:
-                refund_events.append((o.refunded_on, o.order_id, "refund", o.payment_method, o.net_total_cents))
+                refund_events.append(
+                    (o.refunded_on, o.order_id, "refund", o.payment_method, o.net_total_cents)
+                )
 
     # ------------------------------------------------------------------ #
-    # 5. Instalment payouts (3 credit lines, net of INSTALMENT_FEE_BP)   #
-    #    Provider pays the shop upfront; fee is deducted before remitting #
+    # Atome instalment payout rows (one per Atome order paid in MONTH)    #
     # ------------------------------------------------------------------ #
-    instalment_pool = [
-        o for o in month["pos"]
-        if o.order_id not in _scripted_ids()
-        and o.order_id not in split_order_ids
-        and o.order_id not in ambig_ids
-        and o.paid_on is not None
-        and o.paid_on.strftime("%Y-%m") == MONTH
-    ]
-    instalment_orders = rng.sample(instalment_pool, k=min(3, len(instalment_pool)))
-    instalment_ids = {o.order_id for o in instalment_orders}
-    instalment_events: list[tuple[date, str, str, str, int]] = []
-    for o in instalment_orders:
-        gross = o.net_total_cents
-        fee = _bp_fee(gross, INSTALMENT_FEE_BP)
-        net = gross - fee
-        payout_date = o.paid_on + timedelta(days=2)
-        if payout_date > MONTH_END:
-            payout_date = MONTH_END
-        instalment_events.append((payout_date, o.order_id, "instalment_payout", "Atome", net))
+    atome_rows: list[dict] = []
+    for o in all_orders:
+        if o.order_id not in atome_ids:
+            continue
+        if o.paid_on is None or o.paid_on.strftime("%Y-%m") != MONTH:
+            continue
+        fee = _bp_fee(o.net_total_cents, INSTALMENT_FEE_BP)
+        net = o.net_total_cents - fee
+        payout_date = min(o.paid_on + timedelta(days=2), MONTH_END)
+        atome_rows.append({
+            "date": payout_date,
+            "description": f"INSTALMENT PAYOUT ORD{o.order_id}",
+            "reference": _bank_ref(o.order_id, "-INST"),
+            "debit": 0, "credit": net,
+            "method": ATOME_METHOD, "order_id": o.order_id, "kind": "instalment_payout",
+        })
 
     # ------------------------------------------------------------------ #
-    # 6. Build raw rows before card batching                              #
+    # Non-card, non-Atome deposit/balance rows                            #
     # ------------------------------------------------------------------ #
-    # Collect all non-card and card transaction separately.
-    non_card_rows: list[dict] = []    # rows to emit as-is
-    card_by_date: dict[date, list[int]] = {}   # date -> list of gross credit amounts
-
     def _make_raw(ev_date: date, oid: str, kind: str, method: str, amount: int) -> dict:
         if oid in ambig_map and kind in ("deposit", "balance", "balance_part1", "balance_part2"):
             desc, ref = ambig_map[oid]
         else:
-            desc = f"ORD{oid} {'DEP' if kind == 'deposit' else 'BAL'}"
-            if kind == "balance_part1":
+            if kind == "deposit":
+                desc = f"ORD{oid} DEP"
+            elif kind == "balance":
+                desc = f"ORD{oid} BAL"
+            elif kind == "balance_part1":
                 desc = f"ORD{oid} BAL PT1"
-            elif kind == "balance_part2":
+            else:
                 desc = f"ORD{oid} BAL PT2"
-            elif kind == "refund":
-                desc = f"REFUND ORD{oid}"
-            elif kind == "instalment_payout":
-                desc = f"INSTALMENT PAYOUT ORD{oid}"
             ref = _bank_ref(oid)
         return {"date": ev_date, "description": desc, "reference": ref,
                 "debit": 0, "credit": amount, "method": method, "order_id": oid, "kind": kind}
 
-    all_raw_events = sorted(
-        events + refund_events,
-        key=lambda e: (e[0], e[1], e[2]),
-    )
-
+    non_card_rows: list[dict] = []
+    all_raw_events = sorted(events + refund_events, key=lambda e: (e[0], e[1], e[2]))
     for ev_date, oid, kind, method, amount in all_raw_events:
         if kind == "refund":
             non_card_rows.append({
-                "date": ev_date, "description": f"REFUND ORD{oid}", "reference": _bank_ref(oid, "-REF"),
-                "debit": amount, "credit": 0, "method": method, "order_id": oid, "kind": kind,
+                "date": ev_date, "description": f"REFUND ORD{oid}",
+                "reference": _bank_ref(oid, "-REF"),
+                "debit": amount, "credit": 0,
+                "method": method, "order_id": oid, "kind": kind,
             })
         elif method in CARD_METHODS:
-            card_by_date.setdefault(ev_date, []).append(amount)
+            pass  # already captured in card_by_date inside _build_bank_context
         else:
-            row = _make_raw(ev_date, oid, kind, method, amount)
-            non_card_rows.append(row)
+            non_card_rows.append(_make_raw(ev_date, oid, kind, method, amount))
 
-    # Build batched card settlement rows (one per day, net of CARD_SETTLEMENT_FEE_BP).
+    # ------------------------------------------------------------------ #
+    # Batched Visa/Mastercard settlement rows                             #
+    # ------------------------------------------------------------------ #
     card_settlement_rows: list[dict] = []
     for settle_date in sorted(card_by_date):
-        gross = sum(card_by_date[settle_date])
+        gross = card_by_date[settle_date]
         fee = _bp_fee(gross, CARD_SETTLEMENT_FEE_BP)
         net = gross - fee
-        value_date = settle_date + timedelta(days=1)
-        if value_date > MONTH_END:
-            value_date = MONTH_END
+        value_date = min(settle_date + timedelta(days=1), MONTH_END)
         card_settlement_rows.append({
-            "date": settle_date, "description": f"CARD SETTLEMENT {settle_date.isoformat()}",
+            "date": settle_date,
+            "description": f"CARD SETTLEMENT {settle_date.isoformat()}",
             "reference": f"CSETL{settle_date.strftime('%Y%m%d')}",
-            "debit": 0, "credit": net, "method": "card_batch", "order_id": "",
+            "debit": 0, "credit": net,
+            "method": "card_batch", "order_id": "",
             "kind": "card_settlement", "_value_date_override": value_date,
-            "_card_gross": gross,  # retained for the test; stripped before writing
-        })
-
-    # Instalment payout rows (credit – provider remits net amount to the shop).
-    instalment_rows: list[dict] = []
-    for ev_date, oid, kind, method, amount in instalment_events:
-        instalment_rows.append({
-            "date": ev_date, "description": f"INSTALMENT PAYOUT ORD{oid}",
-            "reference": _bank_ref(oid, "-INST"),
-            "debit": 0, "credit": amount, "method": method, "order_id": oid, "kind": kind,
         })
 
     # ------------------------------------------------------------------ #
-    # 7. Merge, sort, compute running balance                             #
+    # Merge, sort, compute running balance                                #
     # ------------------------------------------------------------------ #
     all_rows = sorted(
-        non_card_rows + card_settlement_rows + instalment_rows,
+        non_card_rows + card_settlement_rows + atome_rows,
         key=lambda r: (r["date"], r["kind"], r.get("order_id", ""), r["description"]),
     )
 
-    # Starting balance: arbitrary but reproducible.
-    balance = 4_285_320  # cents  (S$42,853.20)
+    balance = 4_285_320  # cents — S$42,853.20 opening balance
     output: list[dict] = []
     for r in all_rows:
-        balance = balance + r["credit"] - r["debit"]
+        balance += r["credit"] - r["debit"]
         value_date = r.pop("_value_date_override", None) or (r["date"] + timedelta(days=1))
-        # Remove internal fields (card_gross is stripped here too).
         r.pop("method", None)
         r.pop("order_id", None)
         r.pop("kind", None)
-        r.pop("_card_gross", None)
         output.append({
             "date": r["date"].isoformat(),
             "value_date": value_date.isoformat(),

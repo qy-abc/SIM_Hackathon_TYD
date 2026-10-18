@@ -5,12 +5,15 @@ from decimal import Decimal
 import pytest
 
 from closer.data.generator import (
+    ATOME_METHOD,
     CARD_METHODS,
     CARD_SETTLEMENT_FEE_BP,
     FAILED_DELIVERY_ORDER,
+    INSTALMENT_FEE_BP,
     MONTH,
     _bp_fee,
     bank_ambig_order_ids,
+    bank_atome_order_ids,
     bank_card_gross_by_date,
     bank_split_order_ids,
     build_month,
@@ -154,56 +157,51 @@ def test_bank_csv_balance_runs_correctly(month_files):
 
 def test_bank_csv_every_paid_order_payments_sum_to_net(month_files, key):
     """
-    For every fully-paid September order that is neither card-based nor ambiguous-reference,
-    the sum of its bank.csv credit rows (referenced via "ORD<id>") must equal net_total_cents.
+    For every fully-paid September order that has direct ORD-prefixed bank rows,
+    the sum of those credit rows must equal net_total_cents.
 
-    - Non-card, non-split orders: deposit row + balance row both carry the ORD reference.
-    - Split-payment orders: both legs carry ORD references and together sum to net.
-    - Card orders: batched into CARD SETTLEMENT — no per-order rows, excluded.
-    - Ambiguous-reference orders: their description/ref is overwritten, so no ORD row exists,
-      excluded.
+    Excluded (no ORD DEP/BAL rows by design):
+    - Visa/Mastercard orders: batched into CARD SETTLEMENT rows.
+    - Atome orders: replaced by a single INSTALMENT PAYOUT credit (ORD...-INST).
+    - Ambiguous-reference orders: their description/ref is overwritten.
+
+    Split-payment orders: the split produces two ORD-referenced legs; they must
+    sum to net unless one leg happened to land in a card method (≤ net is valid then).
     """
     month = build_month()
     split_ids = bank_split_order_ids(month)
     ambig_ids = bank_ambig_order_ids(month)
+    atome_ids = bank_atome_order_ids(month)
 
-    # Accumulate credits per order_id from ORD-prefixed references
-    # (excludes -REF refund lines and -INST instalment payout lines).
+    # Accumulate credits per order_id from ORD-prefixed, non-REF, non-INST refs.
     rows = _read_bank(month_files)
     credits_by_order: dict[str, Decimal] = {}
     for row in rows:
         ref = row["reference"]
         if ref.startswith("ORD") and not ref.endswith("-REF") and not ref.endswith("-INST"):
-            # Strip leading "ORD" to get the raw order_id (e.g. "1001" or "RS-01").
-            oid = ref[3:]
+            oid = ref[3:]  # strips "ORD"; preserves "RS-01" etc.
             credits_by_order[oid] = credits_by_order.get(oid, Decimal("0")) + Decimal(row["credit"])
 
-    # Target: non-card, non-ambiguous, fully paid in September.
+    # Target: non-card, non-Atome, non-ambiguous, fully paid in September.
     target_orders = [
         o for o in key["golden_orders"]
         if o.get("paid_on") and o["paid_on"].startswith(MONTH)
         and o["payment_method"] not in CARD_METHODS
+        and o["payment_method"] != ATOME_METHOD
         and o["order_id"] not in ambig_ids
     ]
-    assert target_orders, "expected at least some non-card non-ambiguous paid orders"
+    assert target_orders, "expected at least some traceable paid orders in September"
 
     for o in target_orders:
         oid = o["order_id"]
         expected = Decimal(o["net_total_cents"]) / 100
         got = credits_by_order.get(oid, Decimal("0"))
         if oid in split_ids:
-            # Split orders may have one leg batched into CARD SETTLEMENT if the alt_method
-            # happened to be a card method.  In that case traceable credits < net is valid.
-            # Assert: traceable credits never exceed net.
+            # One balance leg may have been given a card alt-method and ended up
+            # in a CARD SETTLEMENT batch — traceable amount ≤ net is valid.
             assert got <= expected, (
                 f"Split order {oid}: traceable credits {got} exceed net {expected}"
             )
-            # Assert: for split orders where both legs are non-card, they sum exactly to net.
-            if got > Decimal("0"):
-                # Deposit is always non-card (payment_method is non-card for this order).
-                # If the only card exposure is the alt-method balance leg, got may be < expected.
-                # We cannot assert equality without knowing alt_method, but we know got <= expected.
-                pass
         else:
             assert got == expected, f"Order {oid}: expected credits {expected}, got {got}"
 
@@ -223,20 +221,70 @@ def test_bank_csv_has_card_settlement_rows(month_files):
     assert batches, "no card settlement rows found"
 
 
-def test_bank_csv_has_instalment_payout_rows(month_files):
-    """Three INSTALMENT PAYOUT rows must exist as credits, not debits."""
+def test_bank_csv_atome_instalment_payouts(month_files, key):
+    """
+    Every Atome order that is fully paid in September must have exactly one
+    INSTALMENT PAYOUT credit row in bank.csv.
+
+    Per-order arithmetic: payout_credit + _bp_fee(net_total_cents, INSTALMENT_FEE_BP)
+    must equal net_total_cents exactly (integer-cent check via Decimal).
+
+    No Atome order may have a DEP or BAL row.
+    """
+    month = build_month()
+    atome_ids = bank_atome_order_ids(month)
+
     rows = _read_bank(month_files)
-    inst = [
-        r for r in rows
-        if r["description"].startswith("INSTALMENT PAYOUT") and Decimal(r["credit"]) > 0
+
+    # Index INSTALMENT PAYOUT credits by order_id (from the -INST reference suffix).
+    payout_by_order: dict[str, Decimal] = {}
+    for row in rows:
+        ref = row["reference"]
+        if ref.endswith("-INST"):
+            oid = ref[3:-5]  # strip leading "ORD" and trailing "-INST"
+            payout_by_order[oid] = Decimal(row["credit"])
+
+    # Verify no DEP/BAL rows exist for Atome orders.
+    for row in rows:
+        ref = row["reference"]
+        if ref.startswith("ORD") and not ref.endswith("-REF") and not ref.endswith("-INST"):
+            oid = ref[3:]
+            assert oid not in atome_ids, (
+                f"Atome order {oid} must not have a DEP/BAL row; found reference={ref}"
+            )
+
+    # Every Atome order paid in September must have a payout row with correct amount.
+    atome_orders_in_sep = [
+        o for o in key["golden_orders"]
+        if o["payment_method"] == ATOME_METHOD
+        and o.get("paid_on") and o["paid_on"].startswith(MONTH)
     ]
-    assert len(inst) >= 1, "no instalment payout credit rows found"
-    # None should be debits.
-    inst_debits = [
-        r for r in rows
-        if r["description"].startswith("INSTALMENT PAYOUT") and Decimal(r["debit"]) > 0
-    ]
-    assert not inst_debits, f"instalment payouts must be credits, found debits: {inst_debits}"
+    assert atome_orders_in_sep, "expected some Atome orders paid in September"
+
+    for o in atome_orders_in_sep:
+        oid = o["order_id"]
+        net = o["net_total_cents"]
+        fee = _bp_fee(net, INSTALMENT_FEE_BP)
+        expected_credit = Decimal(net - fee)
+        got = payout_by_order.get(oid)
+        assert got is not None, f"Atome order {oid}: no INSTALMENT PAYOUT row found"
+        assert got * 100 == expected_credit, (
+            f"Atome order {oid}: payout {got} + fee {fee}c != net {net}c"
+        )
+
+
+def test_bank_csv_ambig_all_four_descriptions_appear(month_files):
+    """
+    All four scripted ambiguous descriptions must appear at least once in bank.csv.
+    The ambig pool now excludes Atome orders, so all four are always present.
+    """
+    rows = _read_bank(month_files)
+    descs = {r["description"] for r in rows}
+    for expected_desc in ("SOFA LIM", "FURN PAYMENT", "DEPOSIT TAN"):
+        # "" (blank) is always in the set since we check non-empty ones here.
+        assert expected_desc in descs, f"ambiguous description '{expected_desc}' not in bank.csv"
+    # Also check blank description appears.
+    assert any(r["description"] == "" for r in rows), "blank description not found in bank.csv"
 
 
 def test_bank_csv_card_settlement_exact_fee(month_files, key):
