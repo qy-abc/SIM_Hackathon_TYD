@@ -6,3 +6,7 @@ __pycache__/
 .env
 # the answer key must never ship to the agent runtime; the generated golden month is reproducible from the seed
 data/golden/
+
+*.egg-info/
+venv/
+.vscode/

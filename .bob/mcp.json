@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "watsonx-orchestrate-adk-docs": {
+      "type": "streamable-http",
+      "url": "https://developer.watson-orchestrate.ibm.com/mcp"
+    },
+    "watsonx-orchestrate-adk": {
+      "command": "./venv/Scripts/python.exe",
+      "args": ["-m", "ibm_watsonx_orchestrate_mcp_server.server"],
+      "env": {"WXO_MCP_WORKING_DIRECTORY": "."},
+      "timeout": 300000
+    }
+  }
+}
