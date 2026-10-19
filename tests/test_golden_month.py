@@ -75,6 +75,7 @@ def test_answer_key_is_not_in_agent_visible_files(month_files):
         month_files["pos_orders.json"].read_text("utf-8")
         + month_files["roadshow.csv"].read_text("utf-8")
         + month_files["bank.csv"].read_text("utf-8")
+        + month_files["settlements.csv"].read_text("utf-8")
         + month_files["crew_messages.json"].read_text("utf-8")
         + month_files["august_payouts.json"].read_text("utf-8")
     )
@@ -96,7 +97,7 @@ def test_engine_matches_answer_key(key):
 # ---------------------------------------------------------------------------
 
 def test_new_agent_files_exist(month_files):
-    for name in ("bank.csv", "crew_messages.json", "august_payouts.json"):
+    for name in ("bank.csv", "settlements.csv", "crew_messages.json", "august_payouts.json"):
         assert month_files[name].exists(), f"{name} was not written"
 
 
