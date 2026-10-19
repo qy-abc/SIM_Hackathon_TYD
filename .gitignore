@@ -10,3 +10,5 @@ data/golden/
 *.egg-info/
 venv/
 .vscode/
+# runtime dispute/ruling state --- generated during demos, never committed
+data/state/

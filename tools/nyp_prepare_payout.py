@@ -1,0 +1,129 @@
+"""nyp_prepare_payout — build the payout instruction list for one month.
+
+Thin wrapper around closer.sources.loader.load_period and
+closer.rules.commission.compute_month.  Returns a list of transfer
+instructions ready to hand to payroll — one row per eligible staff member
+with a non-zero net payout.
+
+Open disputes are held automatically from data/state/disputes.json; ruled
+split overrides are applied the same way as in nyp_compute_commission.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from ibm_watsonx_orchestrate.agent_builder.tools import tool
+
+from closer.data.staff import load_staff
+from closer.rules.commission import compute_month
+from closer.rules.plan import load_plans
+from closer.sources.loader import load_period
+from tools._state import open_dispute_ids, split_override
+
+_DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+
+
+def _data_dir(month: str, data_root: Path | None = None) -> Path:
+    root = data_root or _DATA_ROOT
+    candidate = root / month
+    if candidate.is_dir():
+        return candidate
+    fallback = root / "golden"
+    if fallback.is_dir():
+        return fallback
+    raise FileNotFoundError(
+        f"No data directory found for month '{month}'. "
+        f"Tried {candidate} and {fallback}."
+    )
+
+
+@tool(
+    name="nyp_prepare_payout",
+    description=(
+        "Build the final payout instruction list for one month: one row per "
+        "eligible staff member with a non-zero net commission (after clawbacks). "
+        "Returns staff name, ID, and amount in both dollars and cents. "
+        "Held orders (open disputes, undelivered, unpaid) are excluded. "
+        "Run nyp_match_payments first so all bank credits are resolved."
+    ),
+)
+def nyp_prepare_payout(
+    month: str,
+    approved_matches: Optional[dict[str, str]] = None,
+    open_disputes: Optional[list[str]] = None,
+    data_root: Optional[str] = None,
+    state_file: Optional[str] = None,
+) -> dict:
+    """Produce payout instructions for *month*.
+
+    Parameters
+    ----------
+    month:
+        ISO year-month, e.g. ``"2026-09"``.
+    approved_matches:
+        Bank line-number (string) → order_id, from nyp_match_payments.
+    open_disputes:
+        Extra order IDs to hold beyond those already in the state file.
+    data_root:
+        Override the default ``data/`` directory (useful in tests).
+    state_file:
+        Override the default ``data/state/disputes.json`` (useful in tests).
+
+    Returns
+    -------
+    dict
+        month, payouts (list of {staff_id, name, amount_dollars, amount_cents}),
+        total_dollars, total_cents, hold_count, held_orders.
+    """
+    root = Path(data_root) if data_root else None
+    sf = Path(state_file) if state_file else None
+    approved: dict[int, str] = (
+        {int(k): v for k, v in approved_matches.items()} if approved_matches else {}
+    )
+
+    period = load_period(month, _data_dir(month, root), approved)
+    held = open_dispute_ids(sf) | set(open_disputes or [])
+
+    patched_orders = []
+    for order in period.orders:
+        override = split_override(order.order_id, sf)
+        if override is not None:
+            order = order.model_copy(update={"split": override})
+        patched_orders.append(order)
+
+    all_staff = load_staff()
+    result = compute_month(
+        patched_orders,
+        load_plans(),
+        all_staff,
+        month,
+        period.prior_payouts,
+        open_disputes=held if held else None,
+    )
+
+    name_by_id = {s.staff_id: s.name for s in all_staff}
+    totals = {k: v for k, v in result.totals().items() if v}
+
+    payouts = [
+        {
+            "staff_id": sid,
+            "name": name_by_id.get(sid, sid),
+            "amount_dollars": f"{cents / 100:,.2f}",
+            "amount_cents": cents,
+        }
+        for sid, cents in sorted(totals.items())
+    ]
+    grand_total = sum(totals.values())
+
+    return {
+        "month": month,
+        "payouts": payouts,
+        "total_dollars": f"{grand_total / 100:,.2f}",
+        "total_cents": grand_total,
+        "hold_count": len(result.holds),
+        "held_orders": [
+            {"order_id": h.order_id, "reason": h.reason}
+            for h in result.holds
+        ],
+    }
