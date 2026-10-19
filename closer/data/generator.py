@@ -34,10 +34,11 @@ DEFAULT_SEED = 20260930
 MONTH = "2026-09"
 MONTH_START, MONTH_END = date(2026, 9, 1), date(2026, 9, 30)
 POS_COUNT, ROADSHOW_ONLY_COUNT = 95, 25
-SALESPEOPLE = ("S02", "S03", "S04", "S05", "S06")
-OWNER = "Jason Lim"
-DISPUTED_ORDER, DISPUTE_OWNER, DISPUTE_CLAIMANT = "1043", "S03", "S02"
-SPLIT_ORDERS = {"1018": {"S02": 60, "S04": 40}, "1061": {"S05": 60, "S06": 40}}
+SALESPEOPLE = ("S04", "S05", "S06", "S07", "S08", "S09")
+# Jason (S02) is the sales manager who approves discounts over 10% and rules on disputes.
+DISCOUNT_APPROVER = "Jason"
+DISPUTED_ORDER, DISPUTE_OWNER, DISPUTE_CLAIMANT = "1043", "S05", "S04"
+SPLIT_ORDERS = {"1018": {"S04": 60, "S06": 40}, "1061": {"S07": 60, "S08": 40}}
 UNAPPROVED_DISCOUNT_ORDER, UNAPPROVED_DISCOUNT_PCT = "1027", 14
 FAILED_DELIVERY_ORDER, RETURNED_ORDER = "1052", "1012"
 PRIOR_MONTH_ORDER, LATE_PAID_ORDER = "0987", "0991"
@@ -101,7 +102,7 @@ def _discount(rng: random.Random, order_id: str) -> tuple[int, str | None]:
     if order_id == UNAPPROVED_DISCOUNT_ORDER:
         return UNAPPROVED_DISCOUNT_PCT, None
     pct = rng.choice((0, 0, 0, 5, 5, 8, 10, 10, 12, 15))
-    return pct, (OWNER if pct > 10 else None)
+    return pct, (DISCOUNT_APPROVER if pct > 10 else None)
 
 
 def _make_order(rng: random.Random, order_id: str, source: str, day: date, phones: set[str],
@@ -127,6 +128,9 @@ def _make_order(rng: random.Random, order_id: str, source: str, day: date, phone
 def _apply_story(order: Order) -> Order:
     """Pin the scripted anomalies onto specific orders."""
     if order.order_id == DISPUTED_ORDER:
+        # POS record shows Aisyah (DISPUTE_OWNER) at 100%.
+        # The roadshow sheet will also show Aisyah but with notes "ravi helped close".
+        # Ravi (DISPUTE_CLAIMANT) later claims 50/50.
         return order.model_copy(update={"salesperson": DISPUTE_OWNER, "split": {DISPUTE_OWNER: 100}})
     if order.order_id in SPLIT_ORDERS:
         first = sorted(SPLIT_ORDERS[order.order_id], key=lambda s: -SPLIT_ORDERS[order.order_id][s])[0]
@@ -151,9 +155,9 @@ def _august_order(rng: random.Random, phones: set[str], order_id: str, salespers
 
 def _prior_month_orders(rng: random.Random, phones: set[str]) -> tuple[list[Order], dict[str, dict[str, int]]]:
     """0987: paid out in August, refunded in September. 0991: delivered in August, paid off in September."""
-    refunded = _august_order(rng, phones, PRIOR_MONTH_ORDER, "S04",
+    refunded = _august_order(rng, phones, PRIOR_MONTH_ORDER, "S06",
                              date(2026, 8, 25), date(2026, 8, 20), refunded=date(2026, 9, 10))
-    late_paid = _august_order(rng, phones, LATE_PAID_ORDER, "S05", date(2026, 8, 28), date(2026, 9, 4))
+    late_paid = _august_order(rng, phones, LATE_PAID_ORDER, "S07", date(2026, 8, 28), date(2026, 9, 4))
     # What August's close paid on 0987, from the engine itself (alone in August, so under the tier).
     august = compute_month([refunded.model_copy(update={"refunded_on": None})],
                            load_plans(), load_staff(), "2026-08")
@@ -170,8 +174,16 @@ def build_month(seed: int = DEFAULT_SEED) -> dict:
     roadshow = [_make_order(rng, f"RS-{i + 1:02d}", "roadshow", d, phones, rng.choice(SALESPEOPLE))
                 for i, d in enumerate(roadshow_days)]
     prior, prior_payouts = _prior_month_orders(rng, phones)
-    duplicates = sorted(rng.sample([o for o in pos if o.order_id not in _scripted_ids()
-                                    and len(o.customer_name.split()) == 3], k=5), key=lambda o: o.order_id)
+    # Order 1043 is the dispute scenario: it was a roadshow order also keyed into POS.
+    # Force it into duplicates (k=4 random + 1043).
+    disputed_pos = next((o for o in pos if o.order_id == DISPUTED_ORDER), None)
+    pool = [o for o in pos if o.order_id not in _scripted_ids()
+            and len(o.customer_name.split()) == 3]
+    random_dups = sorted(rng.sample(pool, k=4), key=lambda o: o.order_id)
+    duplicates = sorted(
+        ([disputed_pos] if disputed_pos else []) + random_dups,
+        key=lambda o: o.order_id,
+    )
     missing = rng.sample(roadshow, k=3)
     return {"seed": seed, "pos": pos, "roadshow_only": roadshow, "prior": prior,
             "prior_payouts": prior_payouts, "duplicates": duplicates, "missing": missing}
@@ -188,13 +200,23 @@ def roadshow_rows(month: dict, rng: random.Random) -> list[dict]:
     entries.sort(key=lambda e: (e[0].created_on, e[0].order_id))
     rows = []
     for n, (o, dup) in enumerate(entries, start=1):
+        if o.order_id == DISPUTED_ORDER:
+            # Roadshow shows Aisyah (DISPUTE_OWNER) as the salesperson; notes flag Ravi's involvement.
+            rs_salesperson = DISPUTE_OWNER
+            notes = "ravi helped close"
+        elif o.order_id in missing_ids:
+            rs_salesperson = ""
+            notes = ""
+        else:
+            rs_salesperson = o.salesperson
+            notes = "also keyed in till" if dup and n % 2 else ""
         rows.append({
             "row": n, "date": o.created_on.isoformat(), "venue": rng.choice(VENUES),
             "customer_name": name_variant(o.customer_name) if dup else o.customer_name, "phone": o.phone,
             "items_text": ", ".join(f"{i.qty}x {i.name}" for i in o.items),
             "amount": f"{o.net_total_cents / 100:.2f}", "deposit": f"{o.net_total_cents * 30 // 100 / 100:.2f}",
-            "salesperson": "" if o.order_id in missing_ids else o.salesperson,
-            "keyed_by": "S07", "notes": "also keyed in till" if dup and n % 2 else "",
+            "salesperson": rs_salesperson,
+            "keyed_by": "S03", "notes": notes,
             "_order_id": o.order_id,
         })
     return rows
@@ -519,7 +541,7 @@ def build_crew_messages(month: dict, rng: random.Random) -> list[dict]:
     One message per delivery (including failed) in MONTH.
     Fields: message_id, sent_at (Asia/Singapore), sender, text.
     """
-    crew = ["S09", "S10", "S11"]
+    crew = ["S10", "S11"]
     all_orders: list[Order] = [*month["pos"], *month["roadshow_only"], *month["prior"]]
 
     messages = []
@@ -644,7 +666,8 @@ def answer_key(month: dict, rows: list[dict]) -> dict:
             {"type": "paid_after_delivery_month", "order_id": LATE_PAID_ORDER, "caught_by": "Commission",
              "detail": "delivered 2026-08-28, balance cleared 2026-09-04: earns in September"},
             {"type": "late_dispute", "order_id": DISPUTED_ORDER, "caught_by": "Supervisor",
-             "detail": f"{DISPUTE_CLAIMANT} claims 50/50; recorded owner {DISPUTE_OWNER} 100%"},
+             "detail": (f"{DISPUTE_CLAIMANT} claims 50/50; POS shows {DISPUTE_OWNER} 100%, "
+                        f"roadshow shows {DISPUTE_OWNER} with notes 'ravi helped close'")},
             {"type": "plan_change", "detail": "promo bonus S$50 -> S$80 from 2026-09-15", "caught_by": "Commission"},
         ],
     }

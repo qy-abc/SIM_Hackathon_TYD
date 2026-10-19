@@ -343,7 +343,7 @@ def test_crew_messages_sgt_timezone(month_files):
 
 def test_crew_messages_sender_is_crew(month_files):
     msgs = json.loads(month_files["crew_messages.json"].read_text("utf-8"))
-    crew = {"S09", "S10", "S11"}
+    crew = {"S10", "S11"}
     for m in msgs:
         assert m["sender"] in crew, f"unexpected sender {m['sender']} in {m['message_id']}"
 

@@ -1,12 +1,12 @@
 staff_id,name,role,telegram_id,commission_eligible
-S01,Jason Lim,owner,tg_test_s01,false
-S02,Ravi Shankar,salesperson,tg_test_s02,true
-S03,Mei Ling Tan,salesperson,tg_test_s03,true
-S04,Daniel Koh,salesperson,tg_test_s04,true
-S05,Priya Nair,salesperson,tg_test_s05,true
-S06,Hock Seng Ong,salesperson,tg_test_s06,true
-S07,Farah Aziz,store_manager,tg_test_s07,false
-S08,Siti Rahmah,finance_admin,tg_test_s08,false
-S09,Ah Seng Lee,delivery_crew,tg_test_s09,false
-S10,Kumar Pillai,delivery_crew,tg_test_s10,false
-S11,Zul Hakim,delivery_crew,tg_test_s11,false
+S01,Mr Lim,owner,tg_test_s01,false
+S02,Jason,sales_manager,tg_test_s02,false
+S03,Mei,admin,tg_test_s03,false
+S04,Ravi,salesperson,tg_test_s04,true
+S05,Aisyah,salesperson,tg_test_s05,true
+S06,Wei Ming,salesperson,tg_test_s06,true
+S07,Priya,salesperson,tg_test_s07,true
+S08,Darren,salesperson,tg_test_s08,true
+S09,Siti,salesperson,tg_test_s09,true
+S10,Ah Seng,delivery_crew,tg_test_s10,false
+S11,Kumar,delivery_crew,tg_test_s11,false
