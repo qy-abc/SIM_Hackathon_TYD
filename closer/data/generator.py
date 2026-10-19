@@ -131,7 +131,21 @@ def _apply_story(order: Order) -> Order:
         # POS record shows Aisyah (DISPUTE_OWNER) at 100%.
         # The roadshow sheet will also show Aisyah but with notes "ravi helped close".
         # Ravi (DISPUTE_CLAIMANT) later claims 50/50.
-        return order.model_copy(update={"salesperson": DISPUTE_OWNER, "split": {DISPUTE_OWNER: 100}})
+        _slk = LineItem(sku="MT-SLK", name="Slumber King Mattress", category="mattress",
+                        brand="Slumber", qty=1, unit_cents=239900)
+        _net = 239900
+        _paid = _net if order.paid_on is not None else _net * 30 // 100
+        return order.model_copy(update={
+            "customer_name": "Tan Ah Kow",
+            "items": (_slk,),
+            "list_total_cents": _net,
+            "discount_pct": 0,
+            "discount_approved_by": None,
+            "net_total_cents": _net,
+            "paid_cents": _paid,
+            "salesperson": DISPUTE_OWNER,
+            "split": {DISPUTE_OWNER: 100},
+        })
     if order.order_id in SPLIT_ORDERS:
         first = sorted(SPLIT_ORDERS[order.order_id], key=lambda s: -SPLIT_ORDERS[order.order_id][s])[0]
         return order.model_copy(update={"salesperson": first})
