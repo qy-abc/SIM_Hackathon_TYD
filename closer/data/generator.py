@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from closer.data.catalog import CATALOG
 from closer.data.models import LineItem, Order
 from closer.data.reference import reference_totals
 from closer.data.staff import load_staff
@@ -48,20 +49,6 @@ VENUES = ("Expo Hall 6", "Suntec L4", "Tampines Hub")
 CARD_SETTLEMENT_FEE_BP = 180   # 1.80% MDR charged by acquirer, net-settled daily
 INSTALMENT_FEE_BP      = 200   # 2.00% taken by instalment provider before payout
 
-CATALOG = (
-    ("MT-SLQ", "Slumber Queen Mattress", "mattress", "Slumber", 189900),
-    ("MT-SLK", "Slumber King Mattress", "mattress", "Slumber", 239900),
-    ("MT-RWQ", "RestWell Queen Mattress", "mattress", "RestWell", 129900),
-    ("PL-SL2", "Slumber Pillow Pair", "accessory", "Slumber", 9900),
-    ("SF-OS3", "Oslo 3-Seater Sofa", "sofa", "Nordhaus", 219900),
-    ("SF-BGL", "Bergen L-Shape Sofa", "sofa", "Nordhaus", 349900),
-    ("RC-ARM", "Recliner Armchair", "sofa", "Nordhaus", 99900),
-    ("BF-KYQ", "Kyoto Queen Bedframe", "bedframe", "Hinoki", 89900),
-    ("DT-TK6", "Teak 6-Seater Dining Table", "dining", "Hinoki", 159900),
-    ("CH-DIN", "Dining Chair", "dining", "Hinoki", 19900),
-    ("WR-3DR", "3-Door Wardrobe", "wardrobe", "Nordhaus", 119900),
-    ("TV-CON", "TV Console", "living", "Hinoki", 69900),
-)
 SURNAMES = ("Tan", "Lim", "Lee", "Ng", "Wong", "Goh", "Chua", "Ong", "Koh", "Teo", "Sim", "Yeo")
 GIVEN = ("Ah Kow", "Mei Hua", "Boon Huat", "Siew Ling", "Wei Ming", "Kok Leong", "Hui Min", "Jun Jie")
 OTHER_NAMES = ("Nur Aisyah", "Muhammad Faizal", "Rajesh Kumar", "Priyanka Menon", "Daniel Fernandez")
@@ -547,12 +534,59 @@ def build_bank_rows(month: dict, rng: random.Random) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Payment-provider settlement report
+# ---------------------------------------------------------------------------
+
+def build_settlement_rows(month: dict, rng: random.Random) -> list[dict]:
+    """
+    The settlement report the card terminal and Atome send with each payout:
+    one row per transaction inside a CARD SETTLEMENT batch or an INSTALMENT PAYOUT.
+
+    Columns: settle_date, provider, batch_ref, txn_date, reference, description, gross.
+    batch_ref is the bank.csv reference of the credit the row is part of.
+    Card rows: gross is the amount charged; the batch credit is the day's gross less
+    CARD_SETTLEMENT_FEE_BP. Atome rows: gross is the order total; the payout is
+    gross less INSTALMENT_FEE_BP.
+
+    The rng must be initialised to seed+2 (same as the bank statement).
+    """
+    ctx = _build_bank_context(month, rng)
+    rows: list[dict] = []
+    for ev_date, oid, kind, method, amount in ctx["events"]:
+        if method not in CARD_METHODS:
+            continue
+        rows.append({
+            "settle_date": ev_date, "provider": method.upper(),
+            "batch_ref": f"CSETL{ev_date.strftime('%Y%m%d')}", "txn_date": ev_date,
+            "reference": _bank_ref(oid),
+            "description": {"deposit": "DEP", "balance": "BAL",
+                            "balance_part1": "BAL PT1", "balance_part2": "BAL PT2"}[kind],
+            "gross": amount,
+        })
+    for o in ctx["all_orders"]:
+        if o.order_id not in ctx["atome_order_ids"]:
+            continue
+        if o.paid_on is None or o.paid_on.strftime("%Y-%m") != MONTH:
+            continue
+        rows.append({
+            "settle_date": min(o.paid_on + timedelta(days=2), MONTH_END), "provider": "ATOME",
+            "batch_ref": _bank_ref(o.order_id, "-INST"), "txn_date": o.paid_on,
+            "reference": _bank_ref(o.order_id), "description": "FULL",
+            "gross": o.net_total_cents,
+        })
+    rows.sort(key=lambda r: (r["settle_date"], r["batch_ref"], r["reference"], r["description"]))
+    return [{**r, "settle_date": r["settle_date"].isoformat(), "txn_date": r["txn_date"].isoformat(),
+             "gross": _fmt_cents(r["gross"])} for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # Crew messages generator
 # ---------------------------------------------------------------------------
 
 def build_crew_messages(month: dict, rng: random.Random) -> list[dict]:
     """
-    One message per delivery (including failed) in MONTH.
+    One message per delivery (including failed) in MONTH, plus the August deliveries
+    of the prior-month orders (0987, 0991).
     Fields: message_id, sent_at (Asia/Singapore), sender, text.
     """
     crew = ["S10", "S11"]
@@ -567,6 +601,10 @@ def build_crew_messages(month: dict, rng: random.Random) -> list[dict]:
         if o.order_id == FAILED_DELIVERY_ORDER:
             delivery_orders.append(o)
         elif o.delivered_on is not None and o.delivered_on.strftime("%Y-%m") == MONTH:
+            delivery_orders.append(o)
+        elif o in month["prior"] and o.delivered_on is not None:
+            # Late-August deliveries still in the chat export: the close needs them for
+            # orders delivered last month and paid off or refunded this month.
             delivery_orders.append(o)
 
     # Sort by delivered_on (use created_on + 3 days as proxy for failed delivery).
@@ -700,12 +738,12 @@ def write_month(out_dir: Path, seed: int = DEFAULT_SEED) -> dict[str, Path]:
 
     paths = {name: out_dir / name for name in (
         "pos_orders.json", "roadshow.csv", "answer_key.json",
-        "bank.csv", "crew_messages.json", "august_payouts.json",
+        "bank.csv", "settlements.csv", "crew_messages.json", "august_payouts.json",
     )}
 
-    # pos_orders.json
+    # pos_orders.json (August's 0987 and 0991 are still open till records in September)
     paths["pos_orders.json"].write_text(
-        json.dumps([pos_record(o) for o in month["pos"]], indent=2), "utf-8"
+        json.dumps([pos_record(o) for o in [*month["prior"], *month["pos"]]], indent=2), "utf-8"
     )
 
     # roadshow.csv
@@ -727,6 +765,17 @@ def write_month(out_dir: Path, seed: int = DEFAULT_SEED) -> dict[str, Path]:
     bank_writer.writeheader()
     bank_writer.writerows(bank_rows)
     paths["bank.csv"].write_text(bank_buf.getvalue(), "utf-8")
+
+    # settlements.csv
+    settle_buf = io.StringIO()
+    settle_writer = csv.DictWriter(
+        settle_buf,
+        fieldnames=["settle_date", "provider", "batch_ref", "txn_date", "reference", "description", "gross"],
+        lineterminator="\n",
+    )
+    settle_writer.writeheader()
+    settle_writer.writerows(build_settlement_rows(month, random.Random(seed + 2)))
+    paths["settlements.csv"].write_text(settle_buf.getvalue(), "utf-8")
 
     # crew_messages.json
     crew_msgs = build_crew_messages(month, crew_rng)
