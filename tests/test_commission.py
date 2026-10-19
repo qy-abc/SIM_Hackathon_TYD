@@ -9,8 +9,8 @@ from tests.conftest import SLUMBER, make_order
 MONTH = "2026-09"
 
 
-def totals(orders, plans, staff, prior=None):
-    return compute_month(orders, plans, staff, MONTH, prior).totals()
+def totals(orders, plans, staff, prior=None, disputes=None):
+    return compute_month(orders, plans, staff, MONTH, prior, open_disputes=disputes).totals()
 
 
 def test_rule1_base_rate(plans, staff):
@@ -100,3 +100,41 @@ def test_allocate_keeps_every_cent():
     assert allocate(100001, {"S02": 60, "S04": 40}) == {"S02": 60001, "S04": 40000}
     with pytest.raises(ValueError):
         allocate(100, {"S02": 60, "S04": 30})
+
+
+# ---------------------------------------------------------------------------
+# New rule tests (disputes, missing salesperson, GST)
+# ---------------------------------------------------------------------------
+
+def test_dispute_order_is_held_with_reason(plans, staff):
+    # Order 1043 is in open_disputes → Hold(reason="dispute open"), no commission line.
+    # net=100_000, gst_rate_bp=0 (plans fixture), rate 3% would give 3_000 — but the
+    # order never reaches commission calculation because it is intercepted first.
+    result = compute_month([make_order("1043")], plans, staff, MONTH,
+                           open_disputes={"1043"})
+    assert result.lines == ()
+    assert len(result.holds) == 1
+    assert result.holds[0].order_id == "1043"
+    assert result.holds[0].reason == "dispute open"
+
+
+def test_missing_salesperson_order_is_held(plans, staff):
+    # Roadshow order with salesperson=None and split={} → held, no commission.
+    # The hold_reason path catches it: "no salesperson recorded".
+    order = make_order(salesperson=None, split={})
+    result = compute_month([order], plans, staff, MONTH)
+    assert result.lines == ()
+    assert len(result.holds) == 1
+    assert result.holds[0].reason == "no salesperson recorded"
+
+
+def test_gst_base_strips_tax_before_commission(plans_gst, staff):
+    # net_total_cents = 109_000 (S$1,090 incl. 9% GST = 900 bp).
+    # GST-exclusive base = round_half_up(109_000 × 10_000 / (10_000 + 900))
+    #   = round_half_up(109_000 × 10_000 / 10_900)
+    #   = (1_090_000_000 + 5_450) // 10_900          <- (numerator + denom//2) // denom
+    #   = 1_090_005_450 // 10_900 = 100_000 exactly  <- 10_900 × 100_000 = 1_090_000_000
+    # Commission = round_half_up(100_000 × 300) = (30_000_000 + 5_000) // 10_000 = 3_000 ✓
+    # Compare with gst_rate_bp=0: base = 109_000, commission = (109_000×300+5_000)//10_000
+    #   = (32_700_000+5_000)//10_000 = 3_270  ← different, confirming GST matters.
+    assert totals([make_order(net=109000)], plans_gst, staff) == {"S02": 3000}

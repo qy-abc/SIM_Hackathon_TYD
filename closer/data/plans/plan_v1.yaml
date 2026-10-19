@@ -10,3 +10,4 @@ promo_brand: Slumber
 promo_category: mattress
 promo_bonus_cents: 5000         # S$50 per promo-brand mattress
 return_window_days: 14
+gst_rate_bp: 900                # 9% GST; commission base excludes GST

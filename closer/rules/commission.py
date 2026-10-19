@@ -18,6 +18,11 @@ Interpretation choices (v0.1, to confirm with the team before the 9 Oct freeze):
   - Rounding: one round-half-up to the cent per (order, person, kind) line.
   - An order refunded in the same month it was earned was never paid out: it earns nothing
     and needs no clawback.
+  - GST: commission base = round_half_up(net_total_cents * BP_DENOMINATOR /
+    (BP_DENOMINATOR + plan.gst_rate_bp)).  The split and tier accumulator use this
+    GST-exclusive base.
+  - Disputed orders: if the order_id is in open_disputes it is held immediately with
+    reason "dispute open"; no commission or bonus is earned.
 """
 from __future__ import annotations
 
@@ -121,15 +126,24 @@ def compute_month(
     staff: Iterable[Staff],
     month: str,
     prior_payouts: Mapping[str, Mapping[str, int]] | None = None,
+    open_disputes: set[str] | None = None,
 ) -> MonthResult:
-    """Every commission line for one month. prior_payouts: order_id -> staff_id -> cents paid before."""
+    """Every commission line for one month.
+
+    prior_payouts: order_id -> staff_id -> cents paid before.
+    open_disputes: order_ids whose commission is held pending dispute resolution.
+    """
     eligible = {s.staff_id for s in staff if s.commission_eligible}
+    disputed = open_disputes or set()
     orders = sorted(orders, key=lambda o: (o.earned_on or date.max, o.order_id))
     lines: list[CommissionLine] = []
     holds: list[Hold] = []
     cumulative: dict[str, int] = defaultdict(int)
 
     for order in orders:
+        if order.order_id in disputed:
+            holds.append(Hold(order_id=order.order_id, reason="dispute open"))
+            continue
         if in_month(order.refunded_on, month) and earned_before(order, month):
             clawbacks = _clawbacks(order, (prior_payouts or {}).get(order.order_id, {}))
             lines += clawbacks
@@ -142,7 +156,8 @@ def compute_month(
             holds.append(Hold(order_id=order.order_id, reason=reason))
             continue
         plan = plan_for(plans, order.created_on)
-        net_shares = allocate(order.net_total_cents, order.split)
+        gst_base = _gst_exclusive_base(order.net_total_cents, plan)
+        net_shares = allocate(gst_base, order.split)
         bonus_shares = allocate(promo_units(order, plan) * plan.promo_bonus_cents, order.split)
         for staff_id in sorted(net_shares):
             if staff_id not in eligible:
@@ -156,6 +171,18 @@ def compute_month(
                     note=f"{promo_units(order, plan)} x {plan.promo_brand} mattress, plan v{plan.version}",
                 ))
     return MonthResult(month=month, lines=tuple(lines), holds=tuple(holds))
+
+
+def _gst_exclusive_base(net_total_cents: int, plan: Plan) -> int:
+    """Strip GST from net_total_cents. Round half up.
+
+    base = round_half_up(net_total_cents * 10000 / (10000 + gst_rate_bp))
+    If gst_rate_bp == 0 the result is net_total_cents unchanged.
+    """
+    if plan.gst_rate_bp == 0:
+        return net_total_cents
+    denom = BP_DENOMINATOR + plan.gst_rate_bp
+    return (net_total_cents * BP_DENOMINATOR + denom // 2) // denom
 
 
 def _commission_line(order: Order, plan: Plan, staff_id: str, share: int, before: int) -> CommissionLine:

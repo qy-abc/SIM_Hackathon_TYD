@@ -21,6 +21,13 @@ def make_order(order_id="1", net=100000, **overrides) -> Order:
 
 @pytest.fixture
 def plans():
+    """Plans with gst_rate_bp=0 so existing rule tests are unaffected by GST."""
+    return tuple(p.model_copy(update={"gst_rate_bp": 0}) for p in load_plans())
+
+
+@pytest.fixture
+def plans_gst():
+    """Plans loaded from YAML as-is (gst_rate_bp=900)."""
     return load_plans()
 
 

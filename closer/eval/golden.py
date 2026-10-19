@@ -19,7 +19,9 @@ def load_key(path: Path) -> dict:
 
 def score_commission(key: dict) -> dict:
     orders = [Order(**o) for o in key["golden_orders"]]
-    result = compute_month(orders, load_plans(), load_staff(), key["month"], key["prior_payouts"])
+    open_disputes = set(key.get("open_disputes", []))
+    result = compute_month(orders, load_plans(), load_staff(), key["month"], key["prior_payouts"],
+                           open_disputes=open_disputes)
     got = {k: v for k, v in result.totals().items() if v}
     want = key["commission_totals_cents"]
     people = sorted(set(got) | set(want))

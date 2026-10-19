@@ -24,6 +24,7 @@ class Plan(BaseModel):
     promo_category: str
     promo_bonus_cents: int
     return_window_days: int
+    gst_rate_bp: int = 0  # e.g. 900 for 9% GST; 0 means no GST adjustment
 
 
 def load_plans(directory: Path = PLANS_DIR) -> tuple[Plan, ...]:

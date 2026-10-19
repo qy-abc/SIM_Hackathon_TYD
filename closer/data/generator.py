@@ -603,17 +603,35 @@ def build_august_payouts(month: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def answer_key(month: dict, rows: list[dict]) -> dict:
-    golden = [*month["pos"], *month["roadshow_only"], *month["prior"]]
+    missing_ids = {o.order_id for o in month["missing"]}
+    open_disputes = {DISPUTED_ORDER}
+
+    # Golden orders: missing-salesperson roadshow entries have salesperson=None
+    # (they were not attributed at the time of close; the true owner is in
+    # missing_salesperson for Intake scoring).  Disputed orders keep their
+    # recorded salesperson so agents can see the ownership; they are excluded
+    # from commission by the open_disputes set.
+    golden_raw = [*month["pos"], *month["roadshow_only"], *month["prior"]]
+    golden = [
+        o.model_copy(update={"salesperson": None, "split": {}}) if o.order_id in missing_ids else o
+        for o in golden_raw
+    ]
+
     eligible = {s.staff_id for s in load_staff() if s.commission_eligible}
-    totals = reference_totals(golden, load_plans(), eligible, MONTH, month["prior_payouts"])
+    totals = reference_totals(golden, load_plans(), eligible, MONTH, month["prior_payouts"],
+                              open_disputes=open_disputes)
     row_of = {r["_order_id"]: r["row"] for r in rows}
+    # True salesperson is taken from the original roadshow order (before nulling).
+    missing_sp_source = {o.order_id: o for o in month["roadshow_only"]}
     return {
         "seed": month["seed"], "month": MONTH,
         "golden_orders": [o.model_dump(mode="json") for o in golden],
         "duplicates": [{"pos_order_id": o.order_id, "roadshow_row": row_of[o.order_id]} for o in month["duplicates"]],
         "missing_salesperson": [{"roadshow_row": row_of[o.order_id], "order_id": o.order_id,
-                                 "true_salesperson": o.salesperson} for o in month["missing"]],
+                                 "true_salesperson": missing_sp_source[o.order_id].salesperson}
+                                for o in month["missing"]],
         "prior_payouts": month["prior_payouts"],
+        "open_disputes": sorted(open_disputes),
         "commission_totals_cents": totals,
         "expected_exceptions": [
             {"type": "unapproved_discount", "order_id": UNAPPROVED_DISCOUNT_ORDER, "caught_by": "Commission"},

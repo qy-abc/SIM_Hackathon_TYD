@@ -11,6 +11,8 @@ from datetime import date
 from closer.data.models import Order
 from closer.rules.plan import Plan
 
+_BP = 10_000  # basis-point denominator
+
 
 def _plan_on(plans: tuple[Plan, ...], day: date) -> Plan:
     return max((p for p in plans if p.effective_from <= day), key=lambda p: p.effective_from)
@@ -29,30 +31,51 @@ def _earned_day(o: Order) -> date | None:
     return None
 
 
-def _earned_this_month(o: Order, month: str) -> bool:
+def _earned_this_month(o: Order, month: str, open_disputes: set[str]) -> bool:
+    """True iff this order earns commission for *month*.
+
+    An order is excluded when:
+    - it has no salesperson (blank roadshow entry, not yet attributed),
+    - its earned date falls outside *month*,
+    - it was refunded in the same month it was earned, or
+    - it is in the open disputes set (held pending resolution).
+    """
     day = _earned_day(o)
     return (
         o.salesperson is not None
+        and o.order_id not in open_disputes
         and day is not None
         and f"{day:%Y-%m}" == month
         and not (o.refunded_on is not None and f"{o.refunded_on:%Y-%m}" == month)
     )
 
 
+def _gst_exclusive(net_total_cents: int, gst_rate_bp: int) -> int:
+    """round_half_up(net_total_cents * 10000 / (10000 + gst_rate_bp))."""
+    if gst_rate_bp == 0:
+        return net_total_cents
+    denom = _BP + gst_rate_bp
+    return (net_total_cents * _BP + denom // 2) // denom
+
+
 def reference_totals(
     orders: list[Order], plans: tuple[Plan, ...], eligible: set[str], month: str,
     prior_payouts: dict[str, dict[str, int]],
+    open_disputes: set[str] | None = None,
 ) -> dict[str, int]:
+    disputed = open_disputes or set()
     totals: dict[str, int] = {}
     for person in sorted(eligible):
         mine = sorted(
-            (o for o in orders if _earned_this_month(o, month) and person in o.split),
+            (o for o in orders if _earned_this_month(o, month, disputed) and person in o.split),
             key=lambda o: (_earned_day(o), o.order_id),
         )
         running, total = 0, 0
         for o in mine:
             plan = _plan_on(plans, o.created_on)
-            net = _share(o.net_total_cents, o.split, person)
+            # Commission base excludes GST (round half up)
+            gst_base = _gst_exclusive(o.net_total_cents, plan.gst_rate_bp)
+            net = _share(gst_base, o.split, person)
             room = max(0, plan.tier_threshold_cents - running)
             low, high = min(net, room), net - min(net, room)
             minus = plan.discount_penalty_bp if (
