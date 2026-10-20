@@ -2,11 +2,11 @@
 
 Thin wrapper around tools._state.record_ruling.  Only a staff member whose
 role is sales_manager may call this; the check is enforced inside _state and
-raises PermissionError for any other caller.
+raises PermissionError for any other caller. Nothing is saved; the agent
+passes the returned split in split_overrides on later calls.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from ibm_watsonx_orchestrate.agent_builder.tools import tool
@@ -20,8 +20,9 @@ from tools._state import record_ruling
         "Close an open dispute and record the sales manager's ruling. "
         "Only a staff member with the sales_manager role (e.g. Jason, S02) may "
         "call this tool — any other caller receives a PermissionError. "
-        "An optional split override re-assigns commission for that order from "
-        "the next nyp_compute_commission run onwards."
+        "The order must be in open_disputes. Nothing is saved: afterwards, remove "
+        "the order from open_disputes and, if a split was given, pass it in "
+        "split_overrides to later commission, statement and payout calls."
     ),
 )
 def nyp_record_ruling(
@@ -29,7 +30,7 @@ def nyp_record_ruling(
     ruled_by: str,
     ruling: str,
     split: Optional[dict[str, int]] = None,
-    state_file: Optional[str] = None,
+    open_disputes: Optional[list[str]] = None,
 ) -> dict:
     """Record the manager's ruling on a dispute and optionally override the split.
 
@@ -47,13 +48,12 @@ def nyp_record_ruling(
     split:
         Optional new split for the order, e.g. ``{"S05": 60, "S04": 40}``.
         Must sum to 100. Pass ``null`` / omit to leave the original split.
-    state_file:
-        Override the default ``data/state/disputes.json`` (useful in tests).
+    open_disputes:
+        Order IDs with an open dispute; must include *order_id*.
 
     Returns
     -------
     dict
-        order_id, ruled_by, ruling, split, ruled_at.
+        order_id, ruled_by, ruling, split, ruled_at, status, next_step.
     """
-    sf = Path(state_file) if state_file else None
-    return record_ruling(order_id, ruled_by, ruling, split, state_file=sf)
+    return record_ruling(order_id, ruled_by, ruling, split, open_disputes)

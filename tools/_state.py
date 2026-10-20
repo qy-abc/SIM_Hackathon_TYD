@@ -1,79 +1,49 @@
-"""Minimal JSON-backed state store for disputes and rulings.
+"""Dispute and ruling helpers shared by the nyp_ tools. No file I/O.
 
-Layout of data/state/disputes.json:
-{
-  "disputes": {
-    "<order_id>": {
-      "raised_by": "<staff_id>",
-      "claim":     "<free text>",
-      "raised_at": "<ISO datetime>",
-      "status":    "open" | "ruled"
-    }
-  },
-  "rulings": {
-    "<order_id>": {
-      "ruled_by":  "<staff_id>",
-      "ruling":    "<free text>",
-      "split":     {"<staff_id>": <int>, ...} | null,
-      "ruled_at":  "<ISO datetime>"
-    }
-  }
-}
+watsonx Orchestrate runs every Python tool on its own read-only filesystem,
+so tools cannot save state between calls. Dispute state therefore travels
+through the conversation instead: the agent passes it back in on every call.
 
-All writes are atomic: load → mutate → rewrite.  Concurrent writes from a
-single-threaded agent are fine; we make no multi-process guarantees.
+  open_disputes    list of order_ids with an open dispute, e.g. ["1043"].
+                   Those orders are held out of commission and payout.
+  split_overrides  order_id -> split from a manager's ruling,
+                   e.g. {"1043": {"S04": 50, "S05": 50}}.
+
+nyp_raise_dispute and nyp_record_ruling return records that tell the agent
+how to update those two values.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 from closer.data.staff import load_staff
-
-_DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
-_DEFAULT_STATE_FILE = _DATA_ROOT / "state" / "disputes.json"
-
-
-def _load(path: Path) -> dict[str, Any]:
-    if path.exists():
-        return json.loads(path.read_text("utf-8"))
-    return {"disputes": {}, "rulings": {}}
-
-
-def _save(state: dict[str, Any], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+from closer.data.models import Order
 
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# Public API used by the tool files
-# ---------------------------------------------------------------------------
+def _staff_ids() -> set[str]:
+    return {s.staff_id for s in load_staff()}
 
-def raise_dispute(
-    order_id: str,
-    raised_by: str,
-    claim: str,
-    state_file: Path | None = None,
-) -> dict[str, Any]:
-    """Record a new dispute.  Idempotent: re-raising an already-open dispute
-    updates the claim text but keeps the original raised_at timestamp."""
-    path = state_file or _DEFAULT_STATE_FILE
-    state = _load(path)
-    existing = state["disputes"].get(order_id, {})
-    state["disputes"][order_id] = {
+
+def raise_dispute(order_id: str, raised_by: str, claim: str) -> dict[str, Any]:
+    """Return a new open-dispute record. Nothing is stored."""
+    if raised_by not in _staff_ids():
+        raise ValueError(f"Unknown staff_id '{raised_by}'.")
+    return {
+        "order_id": order_id,
         "raised_by": raised_by,
         "claim": claim,
-        "raised_at": existing.get("raised_at", _now_iso()),
+        "raised_at": _now_iso(),
         "status": "open",
+        "next_step": (
+            f"Add '{order_id}' to open_disputes on every later commission, "
+            "statement or payout call. Only a sales manager can rule on it."
+        ),
     }
-    _save(state, path)
-    return {"order_id": order_id, **state["disputes"][order_id]}
 
 
 def _sales_managers() -> list[str]:
@@ -85,12 +55,12 @@ def record_ruling(
     order_id: str,
     ruled_by: str,
     ruling: str,
-    split: dict[str, int] | None,
-    state_file: Path | None = None,
+    split: Mapping[str, int] | None,
+    open_disputes: Iterable[str] | None,
 ) -> dict[str, Any]:
-    """Close a dispute and record the manager's ruling (and optional split override).
+    """Return the manager's ruling on an open dispute. Nothing is stored.
 
-    Only a staff member with role ``sales_manager`` may rule.  Any other caller
+    Only a staff member with role ``sales_manager`` may rule. Any other caller
     raises a ``PermissionError`` that names who is authorised.
     """
     managers = _sales_managers()
@@ -104,44 +74,43 @@ def record_ruling(
             f"'{ruled_by}' is not authorised to record a ruling. "
             f"Only sales managers may rule: {names}."
         )
-    path = state_file or _DEFAULT_STATE_FILE
-    state = _load(path)
-    if order_id not in state["disputes"]:
-        raise ValueError(f"No dispute on record for order '{order_id}'.")
-    if split is not None and sum(split.values()) != 100:
-        raise ValueError(f"split must sum to 100, got {dict(split)}.")
-    state["disputes"][order_id]["status"] = "ruled"
-    state["rulings"][order_id] = {
+    if order_id not in set(open_disputes or []):
+        raise ValueError(f"No open dispute for order '{order_id}'.")
+    if split is not None:
+        unknown = set(split) - _staff_ids()
+        if unknown:
+            raise ValueError(f"Unknown staff_id in split: {sorted(unknown)}.")
+        if sum(split.values()) != 100:
+            raise ValueError(f"split must sum to 100, got {dict(split)}.")
+    next_step = f"Remove '{order_id}' from open_disputes."
+    if split is not None:
+        next_step += f" Pass split_overrides {{'{order_id}': {dict(split)}}} on later calls."
+    return {
+        "order_id": order_id,
         "ruled_by": ruled_by,
         "ruling": ruling,
-        "split": split,
+        "split": dict(split) if split is not None else None,
         "ruled_at": _now_iso(),
+        "status": "ruled",
+        "next_step": next_step,
     }
-    _save(state, path)
-    return {"order_id": order_id, **state["rulings"][order_id]}
 
 
-def open_dispute_ids(state_file: Path | None = None) -> set[str]:
-    """Return every order_id whose dispute is still open."""
-    state = _load(state_file or _DEFAULT_STATE_FILE)
-    return {oid for oid, d in state["disputes"].items() if d["status"] == "open"}
-
-
-def split_override(order_id: str, state_file: Path | None = None) -> dict[str, int] | None:
-    """Return the split from a ruling, or None if no ruling exists for this order."""
-    state = _load(state_file or _DEFAULT_STATE_FILE)
-    ruling = state["rulings"].get(order_id)
-    return ruling["split"] if ruling else None
-
-
-def list_disputes(state_file: Path | None = None) -> list[dict[str, Any]]:
-    """Return all disputes (open and ruled) as a list."""
-    state = _load(state_file or _DEFAULT_STATE_FILE)
-    rows = []
-    for oid, d in sorted(state["disputes"].items()):
-        row = {"order_id": oid, **d}
-        ruling = state["rulings"].get(oid)
-        if ruling:
-            row["ruling"] = ruling
-        rows.append(row)
-    return rows
+def apply_split_overrides(
+    orders: Iterable[Order],
+    split_overrides: Mapping[str, Mapping[str, int]] | None,
+) -> list[Order]:
+    """Return the orders with any ruled split swapped in."""
+    overrides = split_overrides or {}
+    patched = []
+    for order in orders:
+        override = overrides.get(order.order_id)
+        if override is not None:
+            if sum(override.values()) != 100:
+                raise ValueError(
+                    f"split_overrides for '{order.order_id}' must sum to 100, "
+                    f"got {dict(override)}."
+                )
+            order = order.model_copy(update={"split": dict(override)})
+        patched.append(order)
+    return patched
