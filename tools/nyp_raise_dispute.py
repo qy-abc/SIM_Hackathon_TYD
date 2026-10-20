@@ -1,12 +1,10 @@
-"""nyp_raise_dispute — record a commission dispute on an order.
+"""nyp_raise_dispute — open a commission dispute on an order.
 
-Thin wrapper around tools._state.raise_dispute.  Persists to
-data/state/disputes.json; that file is in .gitignore.
+Thin wrapper around tools._state.raise_dispute. Nothing is saved: the
+Orchestrate tool runtime is read-only, so the agent carries the order_id in
+open_disputes on later calls.
 """
 from __future__ import annotations
-
-from pathlib import Path
-from typing import Optional
 
 from ibm_watsonx_orchestrate.agent_builder.tools import tool
 
@@ -16,19 +14,15 @@ from tools._state import raise_dispute
 @tool(
     name="nyp_raise_dispute",
     description=(
-        "Record a commission dispute on a specific order. The dispute is saved to "
-        "data/state/disputes.json and will automatically hold that order out of "
-        "any subsequent commission calculation until it is ruled on. "
-        "Use nyp_record_ruling (sales manager only) to close the dispute."
+        "Open a commission dispute on a specific order. Nothing is saved and no "
+        "pay changes: the order is held only when you pass its order_id in "
+        "open_disputes to nyp_compute_commission, nyp_explain_statement and "
+        "nyp_prepare_payout. Only a sales manager can close it with "
+        "nyp_record_ruling."
     ),
 )
-def nyp_raise_dispute(
-    order_id: str,
-    raised_by: str,
-    claim: str,
-    state_file: Optional[str] = None,
-) -> dict:
-    """Raise (or update) a commission dispute for *order_id*.
+def nyp_raise_dispute(order_id: str, raised_by: str, claim: str) -> dict:
+    """Open a commission dispute for *order_id*.
 
     Parameters
     ----------
@@ -39,13 +33,10 @@ def nyp_raise_dispute(
     claim:
         Free-text description of the claim, e.g.
         ``"I closed this sale jointly with S05 — split should be 50/50."``.
-    state_file:
-        Override the default ``data/state/disputes.json`` (useful in tests).
 
     Returns
     -------
     dict
-        order_id, raised_by, claim, raised_at, status.
+        order_id, raised_by, claim, raised_at, status, next_step.
     """
-    sf = Path(state_file) if state_file else None
-    return raise_dispute(order_id, raised_by, claim, state_file=sf)
+    return raise_dispute(order_id, raised_by, claim)

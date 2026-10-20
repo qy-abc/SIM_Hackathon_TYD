@@ -5,8 +5,8 @@ closer.rules.commission.compute_month.  Returns a list of transfer
 instructions ready to hand to payroll — one row per eligible staff member
 with a non-zero net payout.
 
-Open disputes are held automatically from data/state/disputes.json; ruled
-split overrides are applied the same way as in nyp_compute_commission.
+Orders in open_disputes are held and split_overrides are applied, the same
+way as in nyp_compute_commission. This only drafts the list; it pays nobody.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import open_dispute_ids, split_override
+from tools._state import apply_split_overrides
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -52,8 +52,8 @@ def nyp_prepare_payout(
     month: str,
     approved_matches: Optional[dict[str, str]] = None,
     open_disputes: Optional[list[str]] = None,
+    split_overrides: Optional[dict[str, dict[str, int]]] = None,
     data_root: Optional[str] = None,
-    state_file: Optional[str] = None,
 ) -> dict:
     """Produce payout instructions for *month*.
 
@@ -64,11 +64,12 @@ def nyp_prepare_payout(
     approved_matches:
         Bank line-number (string) → order_id, from nyp_match_payments.
     open_disputes:
-        Extra order IDs to hold beyond those already in the state file.
+        Order IDs with an open dispute (from nyp_raise_dispute); held.
+    split_overrides:
+        order_id -> split from nyp_record_ruling, e.g.
+        ``{"1043": {"S04": 50, "S05": 50}}``.
     data_root:
         Override the default ``data/`` directory (useful in tests).
-    state_file:
-        Override the default ``data/state/disputes.json`` (useful in tests).
 
     Returns
     -------
@@ -77,20 +78,14 @@ def nyp_prepare_payout(
         total_dollars, total_cents, hold_count, held_orders.
     """
     root = Path(data_root) if data_root else None
-    sf = Path(state_file) if state_file else None
     approved: dict[int, str] = (
         {int(k): v for k, v in approved_matches.items()} if approved_matches else {}
     )
 
     period = load_period(month, _data_dir(month, root), approved)
-    held = open_dispute_ids(sf) | set(open_disputes or [])
+    held = set(open_disputes or [])
 
-    patched_orders = []
-    for order in period.orders:
-        override = split_override(order.order_id, sf)
-        if override is not None:
-            order = order.model_copy(update={"split": override})
-        patched_orders.append(order)
+    patched_orders = apply_split_overrides(period.orders, split_overrides)
 
     all_staff = load_staff()
     result = compute_month(
