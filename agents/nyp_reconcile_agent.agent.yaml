@@ -1,7 +1,7 @@
 spec_version: v1
 kind: native
 name: nyp_reconcile_agent
-llm: watsonx/ibm/granite-3-8b-instruct
+llm: groq/openai/gpt-oss-120b
 style: react_core
 hide_reasoning: false
 memory_enabled: false
