@@ -5,13 +5,16 @@
 
 Orchestrate uploads everything under the tool's package root, so the tools
 are not imported from the repo root (that would ship venv/, .git/ and
-data/golden/answer_key.json). Instead this builds build/nyp_package/ with
-only what the tools need:
+data/golden/answer_key.json). Instead this builds a fresh nyp_package/ in
+the system temp folder, with only what the tools need:
 
     closer/          minus cli.py, eval/ and data/generator.py
     tools/
     data/golden/     the six agent-visible files, never answer_key.json
     requirements.txt
+
+The temp folder keeps the build out of OneDrive, which locks files it is
+still syncing and makes clearing a build folder in the repo fail.
 
 Run `python -m closer.cli generate` first if data/golden/ is missing.
 --run needs an active environment (Bob's Environment Manager, or
@@ -23,10 +26,11 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BUILD = ROOT / "build" / "nyp_package"
+BUILD = Path(tempfile.mkdtemp(prefix="nyp_deploy_")) / "nyp_package"
 
 AGENT_FILES = (
     "august_payouts.json",
@@ -60,8 +64,6 @@ def build() -> list[Path]:
     if missing:
         sys.exit(f"data/golden is missing {missing}; run `python -m closer.cli generate` first.")
 
-    if BUILD.exists():
-        shutil.rmtree(BUILD)
     shutil.copytree(ROOT / "closer", BUILD / "closer", ignore=SKIP)
     shutil.copytree(ROOT / "tools", BUILD / "tools", ignore=SKIP)
     (BUILD / "data" / "golden").mkdir(parents=True)
@@ -95,11 +97,10 @@ def orchestrate_exe() -> str:
 
 
 def commands(tool_files: list[Path]) -> list[list[str]]:
-    rel = lambda p: str(p.relative_to(ROOT))
     exe = orchestrate_exe()
     cmds = [
         [exe, "tools", "import", "-k", "python",
-         "-p", rel(BUILD), "-f", rel(tool), "-r", rel(BUILD / "requirements.txt")]
+         "-p", str(BUILD), "-f", str(tool), "-r", str(BUILD / "requirements.txt")]
         for tool in tool_files
     ]
     cmds += [
@@ -116,6 +117,7 @@ def main() -> None:
 
     tool_files = build()
     check(tool_files)
+    print(f"Package built in {BUILD}")
     for cmd in commands(tool_files):
         print(" ".join(cmd))
         if args.run:
