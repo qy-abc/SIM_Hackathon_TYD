@@ -119,9 +119,16 @@ def record_ruling(
 def apply_split_overrides(
     orders: Iterable[Order],
     split_overrides: Mapping[str, Mapping[str, float]] | None,
+    open_disputes: Iterable[str] | None = None,
 ) -> list[Order]:
     """Return the orders with any ruled split swapped in."""
     overrides = split_overrides or {}
+    both = sorted(set(overrides) & set(open_disputes or []))
+    if both:
+        raise ValueError(
+            f"Orders {both} are in both open_disputes and split_overrides. A ruled "
+            "order is no longer disputed: remove it from open_disputes and call again."
+        )
     patched = []
     for order in orders:
         override = overrides.get(order.order_id)

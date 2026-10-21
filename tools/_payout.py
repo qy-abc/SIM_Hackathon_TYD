@@ -46,7 +46,7 @@ def build_payout(
         raise ValueError(unconfirmed["warning"])
     held = set(open_disputes or [])
 
-    patched_orders = apply_split_overrides(period.orders, split_overrides)
+    patched_orders = apply_split_overrides(period.orders, split_overrides, open_disputes)
 
     all_staff = load_staff()
     result = compute_month(
