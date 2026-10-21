@@ -414,3 +414,11 @@ def test_tools_never_write_files():
         source = path.read_text("utf-8")
         for banned in ("write_text", "write_bytes", "mkdir", "open("):
             assert banned not in source, f"{path.name} uses {banned}"
+
+
+def test_whoami_echoes_login_context():
+    from tools.nyp_whoami import nyp_whoami
+    result = unwrap(nyp_whoami(context={"request_context": {
+        "wxo_email_id": "owner@example.com", "wxo_user_name": "owner", "wxo_thread_id": "t1"}}))
+    assert result == {"wxo_email_id": "owner@example.com", "wxo_user_name": "owner",
+                      "context_keys": ["wxo_email_id", "wxo_thread_id", "wxo_user_name"]}
