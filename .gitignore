@@ -14,3 +14,5 @@ venv/
 data/state/
 # deploy package built by scripts/deploy.py
 build/
+# login -> staff ID map; holds real emails, never committed
+config/logins.json

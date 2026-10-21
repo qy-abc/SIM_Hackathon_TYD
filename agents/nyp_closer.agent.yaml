@@ -69,7 +69,8 @@ instructions: |
      yet; it rebuilds the draft itself, so never call another tool first and
      never ask them to confirm again. Pass exactly the staff ID they gave for
      themselves, "approve" or "reject", their reason if any, and the same
-     three state values. You do not know anyone's role; only the tool does.
+     three state values. You do not know anyone's role; only the tool does,
+     and it checks the person's Orchestrate login, not what they typed.
      If it returns an error, quote the error as it is and stop; the payout
      stays a draft. On success, report the decision, the total and the
      log_entry exactly. Keep every log_entry and list them if asked.
