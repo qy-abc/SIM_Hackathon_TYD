@@ -29,7 +29,7 @@ def nyp_record_ruling(
     order_id: str,
     ruled_by: str,
     ruling: str,
-    split: Optional[dict[str, int]] = None,
+    split: Optional[dict[str, float]] = None,
     open_disputes: Optional[list[str]] = None,
 ) -> dict:
     """Record the manager's ruling on a dispute and optionally override the split.
@@ -47,7 +47,8 @@ def nyp_record_ruling(
         ``"Ravi assisted but Aisyah led the sale — split 60/40."``
     split:
         Optional new split for the order, e.g. ``{"S05": 60, "S04": 40}``.
-        Must sum to 100. Pass ``null`` / omit to leave the original split.
+        Whole percentages that sum to 100 (fractions like 0.5 are
+        converted). Pass ``null`` / omit to leave the original split.
     open_disputes:
         Order IDs with an open dispute; must include *order_id*.
 

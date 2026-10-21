@@ -52,7 +52,7 @@ def nyp_prepare_payout(
     month: str,
     approved_matches: Optional[dict[str, str]] = None,
     open_disputes: Optional[list[str]] = None,
-    split_overrides: Optional[dict[str, dict[str, int]]] = None,
+    split_overrides: Optional[dict[str, dict[str, float]]] = None,
     data_root: Optional[str] = None,
 ) -> dict:
     """Produce payout instructions for *month*.
