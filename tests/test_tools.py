@@ -334,6 +334,21 @@ def _ruled_state():
             "split_overrides": {"1043": {"S04": 50, "S05": 50}}, "data_root": DATA_ROOT}
 
 
+def _login(email):
+    return {"request_context": {"wxo_email_id": email, "wxo_user_name": email.split("@")[0]}}
+
+
+@pytest.fixture(autouse=True)
+def _logins_file(tmp_path, monkeypatch):
+    """Link test logins to staff IDs; config/logins.json is never committed."""
+    import json
+    import tools._identity as identity
+    path = tmp_path / "logins.json"
+    path.write_text(json.dumps({"Owner@Example.com": "S01", "manager@example.com": "S02",
+                                "ravi@example.com": "S04"}))
+    monkeypatch.setattr(identity, "LOGINS_FILE", path)
+
+
 def test_payout_lists_clawbacks():
     result = unwrap(nyp_prepare_payout(MONTH, **_ruled_state()))
     assert result["total_dollars"] == "8,063.15"
@@ -343,30 +358,48 @@ def test_payout_lists_clawbacks():
 
 
 def test_owner_approves_payout():
-    result = unwrap(nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state()))
+    result = unwrap(nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(),
+                                       context=_login("owner@example.com")))
     assert result["decision"] == "approved"
     assert result["decided_by"] == "S01"
+    assert result["login"] == "owner@example.com"
     assert result["total_dollars"] == "8,063.15"
     assert "S01 approved the 2026-09 payout of S$8,063.15" in result["log_entry"]
+    assert result["log_entry"].endswith("(login owner@example.com)")
 
 
 def test_owner_rejects_payout():
     result = unwrap(nyp_approve_payout(MONTH, "S01", "Reject", "Check Ravi first.",
-                                       **_ruled_state()))
+                                       **_ruled_state(), context=_login("owner@example.com")))
     assert result["decision"] == "rejected"
     assert "stays a draft" in result["status"]
-    assert result["log_entry"].endswith(": Check Ravi first.")
+    assert "Check Ravi first." in result["log_entry"]
 
 
-@pytest.mark.parametrize("who", ["S02", "S04", "S99"])
-def test_only_owner_can_decide_payout(who):
+@pytest.mark.parametrize("login", ["manager@example.com", "ravi@example.com"])
+def test_only_owner_login_can_decide_payout(login):
+    linked = {"manager@example.com": "S02", "ravi@example.com": "S04"}[login]
     with pytest.raises(PermissionError, match="Only the owner may: Mr Lim \\(S01\\)"):
-        nyp_approve_payout(MONTH, who, "approve", **_ruled_state())
+        nyp_approve_payout(MONTH, linked, "approve", **_ruled_state(), context=_login(login))
+
+
+def test_typing_owner_id_does_not_beat_the_login():
+    with pytest.raises(PermissionError, match="this login is linked to 'S02'"):
+        nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(),
+                           context=_login("manager@example.com"))
+
+
+@pytest.mark.parametrize("context", [None, {"request_context": {}},
+                                     {"request_context": {"wxo_email_id": "stranger@example.com"}}])
+def test_unlinked_or_missing_login_cannot_decide(context):
+    with pytest.raises(PermissionError, match="not linked"):
+        nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(), context=context)
 
 
 def test_payout_decision_must_be_approve_or_reject():
     with pytest.raises(ValueError, match="approve' or 'reject"):
-        nyp_approve_payout(MONTH, "S01", "maybe", **_ruled_state())
+        nyp_approve_payout(MONTH, "S01", "maybe", **_ruled_state(),
+                           context=_login("owner@example.com"))
 
 
 def test_dropped_approval_is_flagged():

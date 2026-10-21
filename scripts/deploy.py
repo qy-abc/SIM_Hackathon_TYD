@@ -11,6 +11,7 @@ the system temp folder, with only what the tools need:
     closer/          minus cli.py, eval/ and data/generator.py
     tools/
     data/golden/     the six agent-visible files, never answer_key.json
+    config/          logins.json (login -> staff ID), if present; gitignored
     requirements.txt
 
 The temp folder keeps the build out of OneDrive, which locks files it is
@@ -71,6 +72,12 @@ def build() -> list[Path]:
     for name in AGENT_FILES:
         shutil.copy2(golden / name, BUILD / "data" / "golden" / name)
     (BUILD / "requirements.txt").write_text(REQUIREMENTS, encoding="utf-8")
+    logins = ROOT / "config" / "logins.json"
+    if logins.is_file():
+        (BUILD / "config").mkdir()
+        shutil.copy2(logins, BUILD / "config" / "logins.json")
+    else:
+        print("Note: config/logins.json is missing, so nobody can approve a payout.")
 
     leaked = [p for p in BUILD.rglob("*") if p.name in ("answer_key.json", "generator.py", ".env")]
     if leaked:
