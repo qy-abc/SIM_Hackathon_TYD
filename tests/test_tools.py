@@ -326,6 +326,49 @@ def test_prepare_payout_holds_open_dispute():
     assert "1043" in held_ids
 
 
+from tools.nyp_approve_payout import nyp_approve_payout
+
+
+def _ruled_state():
+    return {"approved_matches": _approve_all_singles(MONTH, DATA_ROOT),
+            "split_overrides": {"1043": {"S04": 50, "S05": 50}}, "data_root": DATA_ROOT}
+
+
+def test_payout_lists_clawbacks():
+    result = unwrap(nyp_prepare_payout(MONTH, **_ruled_state()))
+    assert result["total_dollars"] == "8,063.15"
+    assert result["clawbacks"] == [{"order_id": "0987", "staff_id": "S06",
+                                    "amount_dollars": "-151.78", "amount_cents": -15178}]
+    assert result["clawback_total_dollars"] == "151.78"
+
+
+def test_owner_approves_payout():
+    result = unwrap(nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state()))
+    assert result["decision"] == "approved"
+    assert result["decided_by"] == "S01"
+    assert result["total_dollars"] == "8,063.15"
+    assert "S01 approved the 2026-09 payout of S$8,063.15" in result["log_entry"]
+
+
+def test_owner_rejects_payout():
+    result = unwrap(nyp_approve_payout(MONTH, "S01", "Reject", "Check Ravi first.",
+                                       **_ruled_state()))
+    assert result["decision"] == "rejected"
+    assert "stays a draft" in result["status"]
+    assert result["log_entry"].endswith(": Check Ravi first.")
+
+
+@pytest.mark.parametrize("who", ["S02", "S04", "S99"])
+def test_only_owner_can_decide_payout(who):
+    with pytest.raises(PermissionError, match="Only the owner may: Mr Lim \\(S01\\)"):
+        nyp_approve_payout(MONTH, who, "approve", **_ruled_state())
+
+
+def test_payout_decision_must_be_approve_or_reject():
+    with pytest.raises(ValueError, match="approve' or 'reject"):
+        nyp_approve_payout(MONTH, "S01", "maybe", **_ruled_state())
+
+
 def test_dropped_approval_is_flagged():
     """Draft Preview once dropped line 142 from approved_matches mid-chat."""
     approved = _approve_all_singles(MONTH, DATA_ROOT)

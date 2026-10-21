@@ -161,3 +161,50 @@ def unconfirmed_warning(period: Any) -> dict[str, Any]:
             "full approved_matches; otherwise ask the user to confirm them."
         )
     return out
+
+
+def _owners() -> list[str]:
+    """Return the staff_ids of every owner in the roster."""
+    return [s.staff_id for s in load_staff() if s.role == "owner"]
+
+
+def record_payout_decision(
+    month: str, decided_by: str, decision: str, reason: str, payout: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return the owner's approve/reject record for a payout draft. Nothing is stored.
+
+    Only a staff member with role ``owner`` may decide. Any other caller
+    raises a ``PermissionError`` that names who is authorised.
+    """
+    owners = _owners()
+    if decided_by not in owners:
+        names = ", ".join(f"{s.name} ({s.staff_id})" for s in load_staff() if s.staff_id in owners)
+        raise PermissionError(
+            f"'{decided_by}' is not authorised to approve or reject a payout. "
+            f"Only the owner may: {names}."
+        )
+    decision = decision.strip().lower()
+    if decision not in ("approve", "reject"):
+        raise ValueError(f"decision must be 'approve' or 'reject', got '{decision}'.")
+    approved = decision == "approve"
+    return {
+        "month": month,
+        "decision": "approved" if approved else "rejected",
+        "decided_by": decided_by,
+        "decided_at": _now_iso(),
+        "reason": reason,
+        "total_dollars": payout["total_dollars"],
+        "total_cents": payout["total_cents"],
+        "payouts": payout["payouts"],
+        "hold_count": payout["hold_count"],
+        "status": (
+            "approved by the owner: ready for payroll. Closer does not send money."
+            if approved else
+            "rejected by the owner: the payout stays a draft and nothing is paid."
+        ),
+        "log_entry": (
+            f"{_now_iso()} {decided_by} {'approved' if approved else 'rejected'} the "
+            f"{month} payout of S${payout['total_dollars']}"
+            + (f": {reason}" if reason else "")
+        ),
+    }
