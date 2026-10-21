@@ -402,6 +402,14 @@ def test_payout_decision_must_be_approve_or_reject():
                            context=_login("owner@example.com"))
 
 
+def test_override_on_wrong_order_is_refused():
+    """Draft Preview once carried Jason's 1043 ruling over as 1044 (Priya's order)."""
+    state = _ruled_state()
+    state["split_overrides"] = {"1044": {"S04": 50, "S05": 50}}
+    with pytest.raises(ValueError, match="order '1044'.*recorded salespeople are \\['S07'\\]"):
+        nyp_compute_commission(MONTH, **state)
+
+
 def test_dropped_approval_is_flagged():
     """Draft Preview once dropped line 142 from approved_matches mid-chat."""
     approved = _approve_all_singles(MONTH, DATA_ROOT)

@@ -127,6 +127,15 @@ def apply_split_overrides(
         override = overrides.get(order.order_id)
         if override is not None:
             override = normalise_split(order.order_id, override)
+            if not set(override) & set(order.split):
+                # A ruling settles a dispute between people on the order; an
+                # override naming none of them is almost always a mistyped ID.
+                raise ValueError(
+                    f"split_overrides for order '{order.order_id}' names "
+                    f"{sorted(override)}, but that order's recorded salespeople "
+                    f"are {sorted(order.split)}. Check the order ID against the "
+                    "ruling from nyp_record_ruling."
+                )
             order = order.model_copy(update={"split": override})
         patched.append(order)
     return patched
