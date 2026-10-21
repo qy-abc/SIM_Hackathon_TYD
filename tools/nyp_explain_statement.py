@@ -15,7 +15,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import apply_split_overrides
+from tools._state import apply_split_overrides, inputs_used as _inputs_used
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -133,4 +133,5 @@ def nyp_explain_statement(
             for line in my_lines
         ],
         "held_orders": my_holds,
+        "inputs_used": _inputs_used(approved_matches, open_disputes, split_overrides),
     }

@@ -19,7 +19,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import apply_split_overrides
+from tools._state import apply_split_overrides, inputs_used as _inputs_used
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -41,8 +41,8 @@ def _data_dir(month: str, data_root: Path | None = None) -> Path:
 @tool(
     name="nyp_compute_commission",
     description=(
-        "Run the commission engine for one month and return per-staff totals, "
-        "every commission/bonus/clawback line, and all held orders with their "
+        "Run the commission engine for one month and return per-staff totals "
+        "and all held orders with their "
         "reasons. Orders in open_disputes are held; splits in split_overrides "
         "(from nyp_record_ruling) are applied before calculation. "
         "Resolve unmatched bank credits with nyp_match_payments first."
@@ -76,7 +76,6 @@ def nyp_compute_commission(
     dict
         month, totals_dollars (staff_id → S$ string),
         totals_cents (staff_id → int),
-        lines (list of commission/bonus/clawback detail),
         holds (list of {order_id, reason}),
         line_count, hold_count.
     """
@@ -104,21 +103,11 @@ def nyp_compute_commission(
         "month": result.month,
         "totals_dollars": {sid: f"{cents / 100:,.2f}" for sid, cents in totals.items()},
         "totals_cents": totals,
-        "lines": [
-            {
-                "order_id": line.order_id,
-                "staff_id": line.staff_id,
-                "kind": line.kind,
-                "amount_cents": line.amount_cents,
-                "base_cents": line.base_cents,
-                "note": line.note,
-            }
-            for line in result.lines
-        ],
         "holds": [
             {"order_id": h.order_id, "reason": h.reason}
             for h in result.holds
         ],
         "line_count": len(result.lines),
         "hold_count": len(result.holds),
+        "inputs_used": _inputs_used(approved_matches, open_disputes, split_overrides),
     }
