@@ -47,7 +47,7 @@ def nyp_explain_statement(
     staff_id: str,
     approved_matches: Optional[dict[str, str]] = None,
     open_disputes: Optional[list[str]] = None,
-    split_overrides: Optional[dict[str, dict[str, int]]] = None,
+    split_overrides: Optional[dict[str, dict[str, float]]] = None,
     data_root: Optional[str] = None,
 ) -> dict:
     """Return a personalised commission statement for *staff_id* in *month*.

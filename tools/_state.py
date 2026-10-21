@@ -51,11 +51,32 @@ def _sales_managers() -> list[str]:
     return [s.staff_id for s in load_staff() if s.role == "sales_manager"]
 
 
+def normalise_split(order_id: str, split: Mapping[str, float]) -> dict[str, int]:
+    """Return *split* as whole percentages that sum to 100.
+
+    Models sometimes send fractions ({"S04": 0.5, "S05": 0.5}) or floats
+    ({"S04": 50.0, ...}) instead of percentages, so both are accepted.
+    """
+    total = sum(float(v) for v in split.values())
+    scale = 100 if abs(total - 1) < 1e-6 else 1
+    percents = {k: float(v) * scale for k, v in split.items()}
+    if any(abs(v - round(v)) > 1e-6 or v < 0 for v in percents.values()):
+        raise ValueError(
+            f"split for '{order_id}' must be whole percentages, got {dict(split)}."
+        )
+    result = {k: int(round(v)) for k, v in percents.items()}
+    if sum(result.values()) != 100:
+        raise ValueError(
+            f"split for '{order_id}' must sum to 100, got {dict(split)}."
+        )
+    return result
+
+
 def record_ruling(
     order_id: str,
     ruled_by: str,
     ruling: str,
-    split: Mapping[str, int] | None,
+    split: Mapping[str, float] | None,
     open_disputes: Iterable[str] | None,
 ) -> dict[str, Any]:
     """Return the manager's ruling on an open dispute. Nothing is stored.
@@ -80,8 +101,7 @@ def record_ruling(
         unknown = set(split) - _staff_ids()
         if unknown:
             raise ValueError(f"Unknown staff_id in split: {sorted(unknown)}.")
-        if sum(split.values()) != 100:
-            raise ValueError(f"split must sum to 100, got {dict(split)}.")
+        split = normalise_split(order_id, split)
     next_step = f"Remove '{order_id}' from open_disputes."
     if split is not None:
         next_step += f" Pass split_overrides {{'{order_id}': {dict(split)}}} on later calls."
@@ -98,7 +118,7 @@ def record_ruling(
 
 def apply_split_overrides(
     orders: Iterable[Order],
-    split_overrides: Mapping[str, Mapping[str, int]] | None,
+    split_overrides: Mapping[str, Mapping[str, float]] | None,
 ) -> list[Order]:
     """Return the orders with any ruled split swapped in."""
     overrides = split_overrides or {}
@@ -106,12 +126,8 @@ def apply_split_overrides(
     for order in orders:
         override = overrides.get(order.order_id)
         if override is not None:
-            if sum(override.values()) != 100:
-                raise ValueError(
-                    f"split_overrides for '{order.order_id}' must sum to 100, "
-                    f"got {dict(override)}."
-                )
-            order = order.model_copy(update={"split": dict(override)})
+            override = normalise_split(order.order_id, override)
+            order = order.model_copy(update={"split": override})
         patched.append(order)
     return patched
 
@@ -119,7 +135,7 @@ def apply_split_overrides(
 def inputs_used(
     approved_matches: Mapping[str, str] | None,
     open_disputes: Iterable[str] | None,
-    split_overrides: Mapping[str, Mapping[str, int]] | None,
+    split_overrides: Mapping[str, Mapping[str, float]] | None,
 ) -> dict[str, Any]:
     """Echo the state a result was computed with, so the agent can check it
     passed everything and carry the same values into its next call."""

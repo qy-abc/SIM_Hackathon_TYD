@@ -258,6 +258,31 @@ def test_record_ruling_bad_split_raises():
                           split={"S04": 60, "S05": 60}, open_disputes=["1043"])
 
 
+@pytest.mark.parametrize("split", [
+    {"S04": 0.5, "S05": 0.5},
+    {"S04": 50.0, "S05": 50.0},
+])
+def test_record_ruling_accepts_fractions_and_floats(split):
+    result = unwrap(nyp_record_ruling("1043", "S02", "50/50",
+                                      split=split, open_disputes=["1043"]))
+    assert result["split"] == {"S04": 50, "S05": 50}
+
+
+def test_record_ruling_rejects_part_percent():
+    with pytest.raises(ValueError, match="whole percentages"):
+        nyp_record_ruling("1043", "S02", "bad split",
+                          split={"S04": 50.5, "S05": 49.5}, open_disputes=["1043"])
+
+
+def test_compute_accepts_fractional_override():
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    whole = unwrap(nyp_compute_commission(MONTH, approved_matches=approved, data_root=DATA_ROOT,
+                                          split_overrides={"1043": {"S04": 50, "S05": 50}}))
+    frac = unwrap(nyp_compute_commission(MONTH, approved_matches=approved, data_root=DATA_ROOT,
+                                         split_overrides={"1043": {"S04": 0.5, "S05": 0.5}}))
+    assert frac["totals_dollars"] == whole["totals_dollars"]
+
+
 def test_record_ruling_unknown_staff_in_split_raises():
     with pytest.raises(ValueError, match="Unknown staff_id"):
         nyp_record_ruling("1043", "S02", "bad split",
