@@ -19,7 +19,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import apply_split_overrides, inputs_used as _inputs_used
+from tools._state import apply_split_overrides, inputs_used as _inputs_used, unconfirmed_warning
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -77,7 +77,8 @@ def nyp_compute_commission(
         month, totals_dollars (staff_id → S$ string),
         totals_cents (staff_id → int),
         holds (list of {order_id, reason}),
-        line_count, hold_count.
+        line_count, hold_count, inputs_used, unconfirmed_bank_lines and,
+        when any bank line is unconfirmed, a warning.
     """
     root = Path(data_root) if data_root else None
     approved: dict[int, str] = (
@@ -110,4 +111,5 @@ def nyp_compute_commission(
         "line_count": len(result.lines),
         "hold_count": len(result.holds),
         "inputs_used": _inputs_used(approved_matches, open_disputes, split_overrides),
+        **unconfirmed_warning(period),
     }

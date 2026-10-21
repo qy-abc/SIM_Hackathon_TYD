@@ -19,7 +19,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import apply_split_overrides, inputs_used as _inputs_used
+from tools._state import apply_split_overrides, inputs_used as _inputs_used, unconfirmed_warning
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 
@@ -45,7 +45,8 @@ def _data_dir(month: str, data_root: Path | None = None) -> Path:
         "eligible staff member with a non-zero net commission (after clawbacks). "
         "Returns staff name, ID, and amount in both dollars and cents. "
         "Held orders (open disputes, undelivered, unpaid) are excluded. "
-        "Run nyp_match_payments first so all bank credits are resolved."
+        "Refuses while any bank credit is not in approved_matches, so pass "
+        "every match the user confirmed."
     ),
 )
 def nyp_prepare_payout(
@@ -83,6 +84,9 @@ def nyp_prepare_payout(
     )
 
     period = load_period(month, _data_dir(month, root), approved)
+    unconfirmed = unconfirmed_warning(period)
+    if unconfirmed.get("warning"):
+        raise ValueError(unconfirmed["warning"])
     held = set(open_disputes or [])
 
     patched_orders = apply_split_overrides(period.orders, split_overrides)

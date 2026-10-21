@@ -144,3 +144,20 @@ def inputs_used(
         "open_disputes": sorted(open_disputes or []),
         "split_overrides": {k: dict(v) for k, v in (split_overrides or {}).items()},
     }
+
+
+def unconfirmed_warning(period: Any) -> dict[str, Any]:
+    """List bank lines still unconfirmed after approved_matches was applied.
+
+    A line the user confirmed earlier shows up here when the agent forgot
+    to pass it back in, so the warning tells it to resend the full state.
+    """
+    lines = sorted(line.line_no for line in period.unmatched_lines)
+    out: dict[str, Any] = {"unconfirmed_bank_lines": lines}
+    if lines:
+        out["warning"] = (
+            f"Bank lines {lines} are not in approved_matches, so their orders "
+            "are held. If the user already confirmed them, call again with the "
+            "full approved_matches; otherwise ask the user to confirm them."
+        )
+    return out

@@ -313,15 +313,32 @@ def test_prepare_payout_structure():
 
 
 def test_prepare_payout_total_matches_sum():
-    result = unwrap(nyp_prepare_payout(MONTH, data_root=DATA_ROOT))
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    result = unwrap(nyp_prepare_payout(MONTH, approved_matches=approved, data_root=DATA_ROOT))
     assert result["total_cents"] == sum(r["amount_cents"] for r in result["payouts"])
 
 
 def test_prepare_payout_holds_open_dispute():
-    result = unwrap(nyp_prepare_payout(MONTH, data_root=DATA_ROOT,
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    result = unwrap(nyp_prepare_payout(MONTH, approved_matches=approved, data_root=DATA_ROOT,
                                        open_disputes=["1043"]))
     held_ids = {h["order_id"] for h in result["held_orders"]}
     assert "1043" in held_ids
+
+
+def test_dropped_approval_is_flagged():
+    """Draft Preview once dropped line 142 from approved_matches mid-chat."""
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    full = unwrap(nyp_compute_commission(MONTH, approved_matches=approved, data_root=DATA_ROOT))
+    assert full["unconfirmed_bank_lines"] == []
+    assert "warning" not in full
+
+    partial = {k: v for k, v in approved.items() if k != "142"}
+    result = unwrap(nyp_compute_commission(MONTH, approved_matches=partial, data_root=DATA_ROOT))
+    assert result["unconfirmed_bank_lines"] == [142]
+    assert "142" in result["warning"]
+    with pytest.raises(ValueError, match=r"\[142\]"):
+        nyp_prepare_payout(MONTH, approved_matches=partial, data_root=DATA_ROOT)
 
 
 # ---------------------------------------------------------------------------
