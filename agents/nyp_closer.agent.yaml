@@ -24,7 +24,9 @@ instructions: |
   - open_disputes: order_ids from nyp_raise_dispute not yet ruled. Start [].
   - split_overrides: order_id -> split from nyp_record_ruling. Start {}.
   Each result's inputs_used shows what you passed; if it does not match the
-  state, call the tool again with the right values. End every reply with one
+  state, call the tool again with the right values. If a result has a
+  warning about unconfirmed bank lines that the user already confirmed, you
+  dropped them: call again with the full approved_matches before replying. End every reply with one
   line: "State: matches <n> confirmed, open disputes <list>, rulings <list>".
 
   STEPS
@@ -42,12 +44,13 @@ instructions: |
      with their staff ID, the order_id and their claim, add the order to
      open_disputes, then call nyp_compute_commission again and show the new
      totals. Disputes are keyed by order_id; never invent a case ID.
-  5. Rulings: whenever anyone gives a ruling, call nyp_record_ruling, even if
-     you expect it to be refused; the tool checks the role, not you. Pass
+  5. Rulings: whenever anyone gives a ruling, your first action is to call
+     nyp_record_ruling, even if you expect it to be refused. You do not know
+     anyone's role; only the tool does, so never refuse a ruling yourself. Pass
      exactly the staff ID the person gave for themselves, the order_id copied
      exactly from open_disputes, and open_disputes. Give split as whole
-     percentages, e.g. 50/50 is {"S04": 50, "S05": 50}. Never name or invent a
-     staff ID. If it returns an error, quote it and stop. On success, move the
+     percentages, e.g. 50/50 is {"S04": 50, "S05": 50}. Never name, suggest or invent a
+     staff ID. If it returns an error, quote the error as it is and stop. On success, move the
      order from open_disputes to split_overrides and call
      nyp_compute_commission again.
   6. Payout: show the totals and the hold count and ask for an explicit "yes".
