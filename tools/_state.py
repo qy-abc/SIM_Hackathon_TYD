@@ -114,3 +114,17 @@ def apply_split_overrides(
             order = order.model_copy(update={"split": dict(override)})
         patched.append(order)
     return patched
+
+
+def inputs_used(
+    approved_matches: Mapping[str, str] | None,
+    open_disputes: Iterable[str] | None,
+    split_overrides: Mapping[str, Mapping[str, int]] | None,
+) -> dict[str, Any]:
+    """Echo the state a result was computed with, so the agent can check it
+    passed everything and carry the same values into its next call."""
+    return {
+        "approved_matches": dict(approved_matches or {}),
+        "open_disputes": sorted(open_disputes or []),
+        "split_overrides": {k: dict(v) for k, v in (split_overrides or {}).items()},
+    }

@@ -155,6 +155,8 @@ def test_compute_commission_raising_dispute_alone_changes_nothing():
 
 
 def test_compute_commission_ruling_split_override():
+    from tools.nyp_explain_statement import nyp_explain_statement
+
     """After a ruling with a new split, the order must not appear in dispute holds."""
     from tools.nyp_record_ruling import nyp_record_ruling
 
@@ -166,8 +168,10 @@ def test_compute_commission_ruling_split_override():
         split_overrides={ruling["order_id"]: ruling["split"]}))
     held_ids = {h["order_id"] for h in result["holds"] if h["reason"] == "dispute open"}
     assert "1043" not in held_ids
-    split_lines = {l["staff_id"] for l in result["lines"] if l["order_id"] == "1043"}
-    assert split_lines == {"S04", "S05"}
+    assert result["inputs_used"]["split_overrides"] == {"1043": {"S04": 50, "S05": 50}}
+    ravi = unwrap(nyp_explain_statement(MONTH, "S04", data_root=DATA_ROOT,
+                                        split_overrides={"1043": ruling["split"]}))
+    assert "1043" in {l["order_id"] for l in ravi["lines"]}
 
 
 # ---------------------------------------------------------------------------

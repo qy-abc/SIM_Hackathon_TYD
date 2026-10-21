@@ -55,6 +55,7 @@ AGENTS = (
     "nyp_reconcile_agent",
     "nyp_commission_agent",
     "nyp_close_supervisor",
+    "nyp_closer",
 )
 
 
