@@ -410,6 +410,12 @@ def test_override_on_wrong_order_is_refused():
         nyp_compute_commission(MONTH, **state)
 
 
+def test_ruled_order_still_open_is_refused():
+    """Draft Preview once kept 1043 in open_disputes after the ruling, so it stayed held."""
+    with pytest.raises(ValueError, match=r"\['1043'\] are in both open_disputes and split_overrides"):
+        nyp_compute_commission(MONTH, **_ruled_state(), open_disputes=["1043"])
+
+
 def test_dropped_approval_is_flagged():
     """Draft Preview once dropped line 142 from approved_matches mid-chat."""
     approved = _approve_all_singles(MONTH, DATA_ROOT)

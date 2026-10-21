@@ -83,7 +83,7 @@ def nyp_explain_statement(
     period = load_period(month, _data_dir(month, root), approved)
     held = set(open_disputes or [])
 
-    patched_orders = apply_split_overrides(period.orders, split_overrides)
+    patched_orders = apply_split_overrides(period.orders, split_overrides, open_disputes)
 
     all_staff = load_staff()
     member = next((s for s in all_staff if s.staff_id == staff_id), None)

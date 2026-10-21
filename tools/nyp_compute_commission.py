@@ -89,7 +89,7 @@ def nyp_compute_commission(
 
     held = set(open_disputes or [])
 
-    patched_orders = apply_split_overrides(period.orders, split_overrides)
+    patched_orders = apply_split_overrides(period.orders, split_overrides, open_disputes)
 
     result = compute_month(
         patched_orders,
