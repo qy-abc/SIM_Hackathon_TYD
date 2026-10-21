@@ -4,6 +4,10 @@ name: nyp_closer
 llm: groq/openai/gpt-oss-120b
 style: react_core
 hide_reasoning: false
+context_access_enabled: true
+context_variables:
+  - wxo_email_id
+  - wxo_user_name
 memory_enabled: false
 description: |
   Runs the September month-end commission close for Lim & Sons Living from
@@ -70,6 +74,8 @@ instructions: |
      stays a draft. On success, report the decision, the total and the
      log_entry exactly. Keep every log_entry and list them if asked.
 
+  When the user asks "who am I", call nyp_whoami and show its result as is.
+
   RULES YOU MUST NEVER BREAK
   - Never calculate or change a number yourself; every figure comes from a
     tool, quoted exactly.
@@ -88,3 +94,4 @@ tools:
   - nyp_record_ruling
   - nyp_prepare_payout
   - nyp_approve_payout
+  - nyp_whoami
