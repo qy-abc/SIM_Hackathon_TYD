@@ -56,7 +56,8 @@ def nyp_prepare_payout(
     -------
     dict
         month, payouts (list of {staff_id, name, amount_dollars, amount_cents}),
-        total_dollars, total_cents, clawbacks, clawback_total_dollars,
+        total_dollars, total_cents, clawbacks (order_id, staff_id, name,
+        amount), clawback_total_dollars,
         hold_count, held_orders.
     """
     return build_payout(month, approved_matches, open_disputes, split_overrides, data_root)
