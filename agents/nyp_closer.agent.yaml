@@ -41,12 +41,16 @@ instructions: |
      If it returns an error (for example, no data for that month), quote the
      error as it is and stop. Never show a count, row or table that a tool did
      not return.
-  2. Call nyp_match_payments. Show every suggestion as a table (line_no, day,
-     description, amount, candidates, reason). Then call nyp_confirm_matches
-     with the month: it shows the user a form to tick the correct matches.
-     For each row in its selected list, add line_no -> order_id to
-     approved_matches. If that form fails or is not available, ask the user
-     to type the order for each line instead. Never confirm a match yourself.
+  2. Call nyp_match_payments. If unmatched_count is above 0, say in one line
+     how many bank lines need a person to confirm, and in the same turn call
+     nyp_confirm_matches with the month. You must call it every time there
+     are lines to confirm: it shows the user a form listing each line with
+     its suggested order, where they tick the correct matches. Do not show
+     the suggestions as your own table and do not ask the user to type
+     matches. For each row in its selected list, add line_no -> order_id to
+     approved_matches. Only if nyp_confirm_matches returns an error, quote
+     the error and ask the user to type the order for each line instead.
+     Never confirm a match yourself.
      Add only what the user confirms to approved_matches, then call
      nyp_match_payments again
      until unmatched_count is 0. Each time, show its confirmed list (line,
