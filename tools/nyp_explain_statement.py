@@ -71,7 +71,8 @@ def nyp_explain_statement(
     Returns
     -------
     dict
-        staff_id, month, total_dollars, total_cents,
+        staff_id, name, role, commission_eligible, note (one plain sentence on
+        whether this person is on commission), month, total_dollars, total_cents,
         lines (filtered to this staff member),
         held_orders (orders that touched this staff member but earned nothing).
     """
@@ -116,9 +117,18 @@ def nyp_explain_statement(
         if _involves(h.order_id)
     ]
 
+    role = member.role.replace("_", " ")
+    note = (
+        f"{member.name} ({role}) is on commission."
+        if member.commission_eligible
+        else f"{member.name} ({role}) is not on commission, so the statement is S$0.00."
+    )
     return {
         "staff_id": staff_id,
         "name": member.name,
+        "role": role,
+        "commission_eligible": member.commission_eligible,
+        "note": note,
         "month": month,
         "total_dollars": f"{total_cents / 100:,.2f}",
         "total_cents": total_cents,

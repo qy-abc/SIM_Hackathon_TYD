@@ -219,6 +219,14 @@ def test_explain_statement_unknown_staff_raises():
         nyp_explain_statement(MONTH, "S99", data_root=DATA_ROOT)
 
 
+def test_statement_says_plainly_who_is_not_on_commission():
+    crew = unwrap(nyp_explain_statement(MONTH, "S10", data_root=DATA_ROOT))
+    assert crew["commission_eligible"] is False
+    assert crew["note"] == "Ah Seng (delivery crew) is not on commission, so the statement is S$0.00."
+    ravi = unwrap(nyp_explain_statement(MONTH, "S04", data_root=DATA_ROOT))
+    assert ravi["note"] == "Ravi (salesperson) is on commission."
+
+
 # ---------------------------------------------------------------------------
 # nyp_raise_dispute
 # ---------------------------------------------------------------------------
