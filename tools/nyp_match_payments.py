@@ -10,6 +10,7 @@ from typing import Optional
 
 from ibm_watsonx_orchestrate.agent_builder.tools import tool
 
+from tools._state import check_matches
 from closer.sources.loader import load_period, suggest_matches
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
@@ -63,13 +64,18 @@ def nyp_match_payments(
         suggestions: list of dicts, each with
             line_no, day, description, credit_dollars, candidates, reason.
         approved_so_far: the approved_matches dict echoed back.
+        confirmed: each confirmed line with its amount, order and salesperson,
+            so the person can check what they confirmed.
     """
     root = Path(data_root) if data_root else None
     approved: dict[int, str] = (
         {int(k): v for k, v in approved_matches.items()} if approved_matches else {}
     )
-    period = load_period(month, _data_dir(month, root), approved)
+    data_dir = _data_dir(month, root)
+    check_matches(month, data_dir, approved)
+    period = load_period(month, data_dir, approved)
     suggestions = suggest_matches(period)
+    orders = {o.order_id: o for o in period.orders}
     return {
         "unmatched_count": len(suggestions),
         "suggestions": [
@@ -84,4 +90,15 @@ def nyp_match_payments(
             for s in suggestions
         ],
         "approved_so_far": {str(k): v for k, v in approved.items()},
+        "confirmed": [
+            {
+                "line_no": line.line_no,
+                "description": line.description or "(blank)",
+                "credit_dollars": f"{line.credit_cents / 100:,.2f}",
+                "order_id": approved[line.line_no],
+                "salesperson": orders[approved[line.line_no]].salesperson,
+            }
+            for line in period.bank_lines
+            if line.line_no in approved
+        ],
     }

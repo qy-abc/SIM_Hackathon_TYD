@@ -45,7 +45,10 @@ instructions: |
      description, amount, candidates, reason) and ask the user to confirm the
      order for each line. Never confirm a match yourself. Add only what the
      user confirms to approved_matches, then call nyp_match_payments again
-     until unmatched_count is 0.
+     until unmatched_count is 0. Each time, show its confirmed list (line,
+     amount, order, salesperson) so the user can check it. If a tool refuses
+     a match, quote the error, remove that line from approved_matches and ask
+     the user again.
   3. Call nyp_compute_commission and show totals_dollars by name and the
      number of holds. Do not list every hold unless asked.
   4. Disputes: when someone disputes an order, say a dispute only opens a case

@@ -109,10 +109,23 @@ def test_match_payments_suggestion_schema():
 
 
 def test_match_payments_echoes_approved():
-    approved = {"99": "9999"}
+    approved = {"27": "1021"}
     result = unwrap(nyp_match_payments(MONTH, approved_matches=approved,
                                        data_root=DATA_ROOT))
-    assert result["approved_so_far"] == {"99": "9999"}
+    assert result["approved_so_far"] == {"27": "1021"}
+    assert result["confirmed"] == [{"line_no": 27, "description": "SOFA LIM",
+                                    "credit_dollars": "968.49", "order_id": "1021",
+                                    "salesperson": result["confirmed"][0]["salesperson"]}]
+
+
+@pytest.mark.parametrize("approved, message", [
+    ({"27": "1022"}, "can only be matched to 1021, not 1022"),
+    ({"99": "9999"}, "Bank line 99 is not a credit waiting to be matched"),
+])
+def test_a_wrong_match_is_refused(approved, message):
+    for call in (nyp_match_payments, nyp_load_month):
+        with pytest.raises(ValueError, match=message):
+            call(MONTH, approved_matches=approved, data_root=DATA_ROOT)
 
 
 # ---------------------------------------------------------------------------
