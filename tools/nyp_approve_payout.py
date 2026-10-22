@@ -14,7 +14,7 @@ from typing import Optional
 from ibm_watsonx_orchestrate.agent_builder.tools import tool
 from ibm_watsonx_orchestrate.run import AgentRun
 
-from tools._identity import staff_id_for_login
+from tools._identity import demo_fallback, staff_id_for_login
 from tools._state import record_payout_decision
 from tools._payout import build_payout
 
@@ -25,6 +25,7 @@ from tools._payout import build_payout
         "Record the owner's decision on the month's payout draft: 'approve' or "
         "'reject'. Only the owner may decide, checked against the Orchestrate "
         "login, not the typed staff ID; anyone else gets a PermissionError. "
+        "In demo mode an unlinked login uses the typed staff ID instead. "
         "Pass the same approved_matches, open_disputes and split_overrides as "
         "nyp_prepare_payout. Returns who decided, what, when and the totals. "
         "Nothing is paid by this tool."
@@ -69,6 +70,12 @@ def nyp_approve_payout(
         total_cents, payouts, hold_count, status, log_entry.
     """
     login, login_staff_id = staff_id_for_login(context)
+    if login_staff_id is None and demo_fallback():
+        payout = build_payout(month, approved_matches, open_disputes, split_overrides, data_root)
+        record = record_payout_decision(month, decided_by, decision, reason, payout)
+        record["login"] = login
+        record["log_entry"] += f" (demo mode: typed ID, login {login or 'none'} not linked)"
+        return record
     if login_staff_id is None:
         raise PermissionError(
             "Payout decisions need a login linked to a staff ID, and this "
