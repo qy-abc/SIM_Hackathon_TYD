@@ -44,6 +44,12 @@
   #chat-container { height: 78vh; min-height: 560px; }
   @media (min-width: 980px) { #chat-section { position: sticky; top: 16px; } }
   .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .picker { display: grid; gap: 8px; }
+  .picker label { font-size: 13px; color: var(--muted); }
+  .picker select, .picker input { width: 100%; font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+  .picker .say q { min-height: 34px; }
+  .role { color: var(--muted); font-size: 13px; }
   footer { max-width: 1280px; margin: 0 auto; padding: 8px 16px 32px; color: var(--muted); font-size: 13px; }
 </style>
 </head>
@@ -56,6 +62,31 @@
 <main>
   <div>
     <section>
+      <h2>Play as a character</h2>
+      <div class="picker">
+        <label for="who">Who are you?</label>
+        <select id="who">
+          <option value="Mr Lim|S01|Owner: approves or rejects the payout.">Mr Lim (S01), owner</option>
+          <option value="Jason|S02|Sales manager: rules on commission disputes.">Jason (S02), sales manager</option>
+          <option value="Mei|S03|Admin: confirms unclear bank matches." selected>Mei (S03), admin</option>
+          <option value="Ravi|S04|Salesperson: earns commission, can raise disputes.">Ravi (S04), salesperson</option>
+          <option value="Aisyah|S05|Salesperson: earns commission, can raise disputes.">Aisyah (S05), salesperson</option>
+          <option value="Wei Ming|S06|Salesperson: earns commission, can raise disputes.">Wei Ming (S06), salesperson</option>
+          <option value="Priya|S07|Salesperson: earns commission, can raise disputes.">Priya (S07), salesperson</option>
+          <option value="Darren|S08|Salesperson: earns commission, can raise disputes.">Darren (S08), salesperson</option>
+          <option value="Siti|S09|Salesperson: earns commission, can raise disputes.">Siti (S09), salesperson</option>
+          <option value="Ah Seng|S10|Delivery crew: not on commission.">Ah Seng (S10), delivery crew</option>
+          <option value="Kumar|S11|Delivery crew: not on commission.">Kumar (S11), delivery crew</option>
+        </select>
+        <div class="role" id="role"></div>
+        <label for="msg">Your message</label>
+        <input id="msg" type="text" placeholder="Type what you want to say to Closer">
+        <div class="say"><q id="out"></q><button class="copy">Copy</button></div>
+      </div>
+      <p class="note">This adds who you are to the start of your message. Paste it into the chat. It is not a real sign-in: Closer's tools check what each staff ID is allowed to do, so a salesperson still cannot rule or approve.</p>
+    </section>
+
+    <section style="margin-top:16px">
       <h2>How to try it</h2>
       <p>The chat on this page is the live agent. Every person below is a role you can play by saying who you are. Copy each line into the chat in order. The data is September 2026 sample data, and no real money moves.</p>
       <ol>
@@ -115,6 +146,17 @@
 <footer>Team N(Y)P · AI-GNITION 2026 · Nexius Labs problem statement 2, "One Less Thing". Sample data only.</footer>
 
 <script>
+  var who = document.getElementById("who"), msg = document.getElementById("msg");
+  function updatePicker() {
+    var parts = who.value.split("|");
+    document.getElementById("role").textContent = parts[2];
+    var text = msg.value.trim();
+    document.getElementById("out").textContent = "I'm " + parts[0] + ", " + parts[1] + "." + (text ? " " + text : "");
+  }
+  who.addEventListener("change", updatePicker);
+  msg.addEventListener("input", updatePicker);
+  updatePicker();
+
   document.querySelectorAll("button.copy").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var text = btn.previousElementSibling.textContent;
