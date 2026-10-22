@@ -257,6 +257,14 @@ def test_raise_dispute_returns_open_record():
     assert "open_disputes" in result["next_step"]
 
 
+def test_raise_dispute_refuses_order_not_named_in_claim():
+    """SJ's 22 Oct run: the claim said 1043 but the model passed 1044."""
+    with pytest.raises(ValueError, match="names order 1043"):
+        nyp_raise_dispute("1044", "S04", "I helped close order 1043, split 50/50 for 2026.")
+    result = unwrap(nyp_raise_dispute("1043", "S04", "I helped close order 1043 in 2026."))
+    assert result["order_id"] == "1043"
+
+
 def test_raise_dispute_unknown_staff_raises():
     with pytest.raises(ValueError, match="Unknown staff_id"):
         nyp_raise_dispute("1043", "S99", "claim")
