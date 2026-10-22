@@ -22,6 +22,7 @@ from closer.sources.loader import load_period
 from tools._state import apply_split_overrides, inputs_used as _inputs_used, unconfirmed_warning
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+_GOLDEN_MONTH = "2026-09"  # data/golden/ holds this month only
 
 
 def _data_dir(month: str, data_root: Path | None = None) -> Path:
@@ -30,11 +31,10 @@ def _data_dir(month: str, data_root: Path | None = None) -> Path:
     if candidate.is_dir():
         return candidate
     fallback = root / "golden"
-    if fallback.is_dir():
+    if month == _GOLDEN_MONTH and fallback.is_dir():
         return fallback
     raise FileNotFoundError(
-        f"No data directory found for month '{month}'. "
-        f"Tried {candidate} and {fallback}."
+        f"No data for month '{month}'. Closer only has data for {_GOLDEN_MONTH}."
     )
 
 

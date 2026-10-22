@@ -13,24 +13,25 @@ from ibm_watsonx_orchestrate.agent_builder.tools import tool
 from closer.sources.loader import load_period
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+_GOLDEN_MONTH = "2026-09"  # data/golden/ holds this month only
 
 
 def _data_dir(month: str, data_root: Path | None = None) -> Path:
     """Resolve the directory holding the agent-visible files for *month*.
 
     Looks for  data/<month>/  first (e.g. data/2026-09/), then falls back to
-    data/golden/ so the golden dataset is always reachable without extra setup.
+    data/golden/ for the golden month only, so another month is never silently
+    given September's data.
     """
     root = data_root or _DATA_ROOT
     candidate = root / month
     if candidate.is_dir():
         return candidate
     fallback = root / "golden"
-    if fallback.is_dir():
+    if month == _GOLDEN_MONTH and fallback.is_dir():
         return fallback
     raise FileNotFoundError(
-        f"No data directory found for month '{month}'. "
-        f"Tried {candidate} and {fallback}."
+        f"No data for month '{month}'. Closer only has data for {_GOLDEN_MONTH}."
     )
 
 

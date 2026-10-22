@@ -68,6 +68,21 @@ def test_load_month_approved_matches_reduce_unmatched():
     assert result_after["unmatched_credits"] < result_before["unmatched_credits"]
 
 
+@pytest.mark.parametrize("tool", ["load", "match", "compute", "payout"])
+def test_a_month_with_no_data_is_refused_not_given_september(tool):
+    from tools.nyp_compute_commission import nyp_compute_commission
+    from tools.nyp_match_payments import nyp_match_payments
+    from tools.nyp_prepare_payout import nyp_prepare_payout
+    calls = {
+        "load": lambda: nyp_load_month("2027-12", data_root=DATA_ROOT),
+        "match": lambda: nyp_match_payments("2027-12", data_root=DATA_ROOT),
+        "compute": lambda: nyp_compute_commission("2027-12", data_root=DATA_ROOT),
+        "payout": lambda: nyp_prepare_payout("2027-12", data_root=DATA_ROOT),
+    }
+    with pytest.raises(FileNotFoundError, match="No data for month '2027-12'"):
+        calls[tool]()
+
+
 # ---------------------------------------------------------------------------
 # nyp_match_payments
 # ---------------------------------------------------------------------------
