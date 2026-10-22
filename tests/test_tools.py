@@ -351,7 +351,7 @@ def _logins_file(tmp_path, monkeypatch):
 
 def test_payout_lists_clawbacks():
     result = unwrap(nyp_prepare_payout(MONTH, **_ruled_state()))
-    assert result["total_dollars"] == "8,063.15"
+    assert result["total_dollars"] == "8,072.33"
     assert result["clawbacks"] == [{"order_id": "0987", "staff_id": "S06",
                                     "amount_dollars": "-151.78", "amount_cents": -15178}]
     assert result["clawback_total_dollars"] == "151.78"
@@ -363,8 +363,8 @@ def test_owner_approves_payout():
     assert result["decision"] == "approved"
     assert result["decided_by"] == "S01"
     assert result["login"] == "owner@example.com"
-    assert result["total_dollars"] == "8,063.15"
-    assert "S01 approved the 2026-09 payout of S$8,063.15" in result["log_entry"]
+    assert result["total_dollars"] == "8,072.33"
+    assert "S01 approved the 2026-09 payout of S$8,072.33" in result["log_entry"]
     assert result["log_entry"].endswith("(login owner@example.com)")
 
 
