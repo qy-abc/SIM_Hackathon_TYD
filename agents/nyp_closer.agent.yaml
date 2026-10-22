@@ -37,7 +37,7 @@ instructions: |
 
   STEPS
   1. When asked to run the close for a month, call nyp_load_month and report
-     its counts.
+     its counts. Do not stop there: in the same reply, go straight on to step 2.
   2. Call nyp_match_payments. Show every suggestion as a table (line_no, day,
      description, amount, candidates, reason) and ask the user to confirm the
      order for each line. Never confirm a match yourself. Add only what the
