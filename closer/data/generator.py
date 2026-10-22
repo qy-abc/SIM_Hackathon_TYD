@@ -6,7 +6,7 @@ answer key they must never see.
 
 Anomalies seeded here (see the plan's "Seeded anomalies" table):
   5 duplicate orders across POS and roadshow, 3 missing salespeople, 1 discount over
-  10% without approval, 2 split deals, 1 failed delivery, 1 return within 14 days,
+  10% without approval, 2 split deals, 1 team sale shared by 4 salespeople, 1 failed delivery, 1 return within 14 days,
   1 refund on an order paid out last month, 1 August order paid off in September,
   1 late dispute (order 1043), and the
   mid-month promo change (plan v2 from 15 Sep).
@@ -40,6 +40,10 @@ SALESPEOPLE = ("S04", "S05", "S06", "S07", "S08", "S09")
 DISCOUNT_APPROVER = "Jason"
 DISPUTED_ORDER, DISPUTE_OWNER, DISPUTE_CLAIMANT = "1043", "S05", "S04"
 SPLIT_ORDERS = {"1018": {"S04": 60, "S06": 40}, "1061": {"S07": 60, "S08": 40}}
+# A living-room project Siti (S09) led with three colleagues. Kept out of SPLIT_ORDERS so the
+# seeded random picks for the other anomalies stay exactly as they were.
+TEAM_SPLIT_ORDER = "1020"
+TEAM_SPLIT = {"S09": 40, "S06": 20, "S07": 20, "S08": 20}
 UNAPPROVED_DISCOUNT_ORDER, UNAPPROVED_DISCOUNT_PCT = "1027", 14
 FAILED_DELIVERY_ORDER, RETURNED_ORDER = "1052", "1012"
 PRIOR_MONTH_ORDER, LATE_PAID_ORDER = "0987", "0991"
@@ -105,7 +109,9 @@ def _make_order(rng: random.Random, order_id: str, source: str, day: date, phone
     return Order(
         order_id=order_id, source=source, created_on=day, customer_name=name, phone=phone, items=items,
         list_total_cents=list_total, discount_pct=pct, discount_approved_by=approver, net_total_cents=net,
-        salesperson=salesperson, split=SPLIT_ORDERS.get(order_id, {salesperson: 100}),
+        salesperson=salesperson,
+        split=SPLIT_ORDERS.get(order_id) or (TEAM_SPLIT if order_id == TEAM_SPLIT_ORDER
+                                             and salesperson in TEAM_SPLIT else {salesperson: 100}),
         payment_method=rng.choice(METHODS), paid_cents=net if fully_paid else net * 30 // 100,
         paid_on=paid_on if fully_paid else None,
         delivered_on=delivered if delivered <= MONTH_END else None,
@@ -711,6 +717,8 @@ def answer_key(month: dict, rows: list[dict]) -> dict:
             {"type": "unapproved_discount", "order_id": UNAPPROVED_DISCOUNT_ORDER, "caught_by": "Commission"},
             {"type": "split_deal", "order_id": "1018", "caught_by": "Commission"},
             {"type": "split_deal", "order_id": "1061", "caught_by": "Commission"},
+            {"type": "team_split", "order_id": TEAM_SPLIT_ORDER, "caught_by": "Commission",
+             "detail": "4 salespeople share one order: S09 40%, S06/S07/S08 20% each"},
             {"type": "failed_delivery", "order_id": FAILED_DELIVERY_ORDER, "caught_by": "Fulfilment"},
             {"type": "return_within_window", "order_id": RETURNED_ORDER, "caught_by": "Commission"},
             {"type": "prior_month_refund", "order_id": PRIOR_MONTH_ORDER, "caught_by": "Commission",

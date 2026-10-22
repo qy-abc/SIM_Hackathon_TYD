@@ -51,7 +51,13 @@ def test_seeded_anomaly_counts(key):
     assert len(key["missing_salesperson"]) == 3
     unapproved = [o for o in key["golden_orders"] if o["discount_pct"] > 10 and not o["discount_approved_by"]]
     assert [o["order_id"] for o in unapproved] == ["1027"]
-    assert sum(len(o["split"]) > 1 for o in key["golden_orders"]) == 2
+    assert sum(len(o["split"]) > 1 for o in key["golden_orders"]) == 3
+
+
+def test_team_sale_is_shared_by_four_salespeople(key):
+    team = next(o for o in key["golden_orders"] if o["order_id"] == "1020")
+    assert team["split"] == {"S09": 40, "S06": 20, "S07": 20, "S08": 20}
+    assert team["salesperson"] == "S09"
 
 
 def test_duplicates_share_a_phone_but_not_the_typed_name(month_files, key):
