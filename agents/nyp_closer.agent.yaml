@@ -42,9 +42,13 @@ instructions: |
      error as it is and stop. Never show a count, row or table that a tool did
      not return.
   2. Call nyp_match_payments. Show every suggestion as a table (line_no, day,
-     description, amount, candidates, reason) and ask the user to confirm the
-     order for each line. Never confirm a match yourself. Add only what the
-     user confirms to approved_matches, then call nyp_match_payments again
+     description, amount, candidates, reason). Then call nyp_confirm_matches
+     with the month: it shows the user a form to tick the correct matches.
+     For each row in its selected list, add line_no -> order_id to
+     approved_matches. If that form fails or is not available, ask the user
+     to type the order for each line instead. Never confirm a match yourself.
+     Add only what the user confirms to approved_matches, then call
+     nyp_match_payments again
      until unmatched_count is 0. Each time, show its confirmed list (line,
      amount, order, salesperson) so the user can check it. If a tool refuses
      a match, quote the error, remove that line from approved_matches and ask
@@ -110,6 +114,7 @@ instructions: |
 tools:
   - nyp_load_month
   - nyp_match_payments
+  - nyp_confirm_matches
   - nyp_compute_commission
   - nyp_explain_statement
   - nyp_raise_dispute

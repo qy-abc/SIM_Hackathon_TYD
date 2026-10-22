@@ -537,3 +537,38 @@ def test_whoami_echoes_login_context():
         "wxo_email_id": "owner@example.com", "wxo_user_name": "owner", "wxo_thread_id": "t1"}}))
     assert result == {"wxo_email_id": "owner@example.com", "wxo_user_name": "owner",
                       "context_keys": ["wxo_email_id", "wxo_thread_id", "wxo_user_name"]}
+
+
+# ---------------------------------------------------------------------------
+# nyp_match_options and the nyp_confirm_matches form
+# ---------------------------------------------------------------------------
+
+from tools.nyp_match_options import nyp_match_options
+
+
+def test_match_options_lists_each_waiting_line_with_its_candidate():
+    options = unwrap(nyp_match_options(MONTH, data_root=DATA_ROOT))["options"]
+    waiting = unwrap(nyp_match_payments(MONTH, data_root=DATA_ROOT))["suggestions"]
+    assert {(o["line_no"], o["order_id"]) for o in options} == {
+        (str(s["line_no"]), c) for s in waiting for c in s["candidates"]}
+    assert options[0]["label"].startswith(f"Line {options[0]['line_no']} · ")
+
+
+def test_match_options_drops_lines_already_confirmed():
+    options = unwrap(nyp_match_options(MONTH, approved_matches={"27": "1021"},
+                                       data_root=DATA_ROOT))["options"]
+    assert "27" not in {o["line_no"] for o in options}
+
+
+def test_confirm_matches_flow_compiles(monkeypatch):
+    import importlib
+    import sys
+    # Building a Flow normally opens an Orchestrate client; compiling needs none.
+    importlib.import_module("ibm_watsonx_orchestrate.flow_builder.flows")
+    flow_module = sys.modules["ibm_watsonx_orchestrate.flow_builder.flows.flow"]
+    monkeypatch.setattr(flow_module, "instantiate_client", lambda *a, **k: None)
+    module = importlib.import_module("flows.nyp_confirm_matches")
+    spec = module.build_nyp_confirm_matches().compile().flow.to_json()
+    field = spec["nodes"]["ask_admin"]["nodes"]["confirm"]["spec"]["form"]["fields"][0]
+    assert field["input_map"]["spec"]["maps"][0]["value_expression"] == "flow.get_options.output.options"
+    assert spec["output_map"]["spec"]["maps"][0]["target_variable"] == "flow.output.selected"
