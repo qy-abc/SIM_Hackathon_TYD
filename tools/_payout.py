@@ -75,6 +75,7 @@ def build_payout(
     grand_total = sum(totals.values())
     clawbacks = [
         {"order_id": line.order_id, "staff_id": line.staff_id,
+         "name": name_by_id.get(line.staff_id, line.staff_id),
          "amount_dollars": f"{line.amount_cents / 100:,.2f}", "amount_cents": line.amount_cents}
         for line in result.lines if line.kind == "clawback"
     ]

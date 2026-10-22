@@ -390,7 +390,7 @@ def _logins_file(tmp_path, monkeypatch):
 def test_payout_lists_clawbacks():
     result = unwrap(nyp_prepare_payout(MONTH, **_ruled_state()))
     assert result["total_dollars"] == "8,072.33"
-    assert result["clawbacks"] == [{"order_id": "0987", "staff_id": "S06",
+    assert result["clawbacks"] == [{"order_id": "0987", "staff_id": "S06", "name": "Wei Ming",
                                     "amount_dollars": "-151.78", "amount_cents": -15178}]
     assert result["clawback_total_dollars"] == "151.78"
 
