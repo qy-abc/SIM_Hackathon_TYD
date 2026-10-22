@@ -396,6 +396,38 @@ def test_unlinked_or_missing_login_cannot_decide(context):
         nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(), context=context)
 
 
+def _demo_fallback_on(monkeypatch, tmp_path):
+    import json
+    import tools._identity as identity
+    path = tmp_path / "logins_demo.json"
+    path.write_text(json.dumps({"owner@example.com": "S01", "manager@example.com": "S02",
+                                "demo_fallback": True}))
+    monkeypatch.setattr(identity, "LOGINS_FILE", path)
+
+
+@pytest.mark.parametrize("context", [None, {"request_context": {"wxo_email_id": "judge@example.com"}}])
+def test_demo_fallback_lets_unlinked_login_use_typed_owner_id(context, monkeypatch, tmp_path):
+    _demo_fallback_on(monkeypatch, tmp_path)
+    result = unwrap(nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(), context=context))
+    assert result["decision"] == "approved"
+    assert result["total_dollars"] == "8,063.15"
+    assert "demo mode: typed ID" in result["log_entry"]
+
+
+def test_demo_fallback_still_needs_the_owner_id(monkeypatch, tmp_path):
+    _demo_fallback_on(monkeypatch, tmp_path)
+    with pytest.raises(PermissionError, match="Only the owner may"):
+        nyp_approve_payout(MONTH, "S02", "approve", **_ruled_state(),
+                           context=_login("judge@example.com"))
+
+
+def test_demo_fallback_does_not_free_a_linked_login(monkeypatch, tmp_path):
+    _demo_fallback_on(monkeypatch, tmp_path)
+    with pytest.raises(PermissionError, match="this login is linked to 'S02'"):
+        nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(),
+                           context=_login("manager@example.com"))
+
+
 def test_payout_decision_must_be_approve_or_reject():
     with pytest.raises(ValueError, match="approve' or 'reject"):
         nyp_approve_payout(MONTH, "S01", "maybe", **_ruled_state(),

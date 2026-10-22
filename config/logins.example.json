@@ -1,3 +1,4 @@
 {
-  "your.orchestrate.login@example.com": "S01"
+  "your.orchestrate.login@example.com": "S01",
+  "demo_fallback": false
 }
