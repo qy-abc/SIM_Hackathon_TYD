@@ -14,6 +14,7 @@ how to update those two values.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
@@ -34,6 +35,14 @@ def raise_dispute(order_id: str, raised_by: str, claim: str) -> dict[str, Any]:
     """Return a new open-dispute record. Nothing is stored."""
     if raised_by not in _staff_ids():
         raise ValueError(f"Unknown staff_id '{raised_by}'.")
+    # The model sometimes passes a neighbouring order number; if the claim
+    # names orders, order_id must be one of them. Years are not order IDs.
+    named = [n for n in re.findall(r"\b\d{4}\b", claim) if not 1900 <= int(n) <= 2100]
+    if named and order_id not in named:
+        raise ValueError(
+            f"The claim names order {', '.join(sorted(set(named)))}, but order_id "
+            f"is '{order_id}'. Call again with the order the person named."
+        )
     return {
         "order_id": order_id,
         "raised_by": raised_by,
@@ -41,8 +50,10 @@ def raise_dispute(order_id: str, raised_by: str, claim: str) -> dict[str, Any]:
         "raised_at": _now_iso(),
         "status": "open",
         "next_step": (
-            f"Add '{order_id}' to open_disputes on every later commission, "
-            "statement or payout call. Only a sales manager can rule on it."
+            f"Add '{order_id}' to open_disputes now and on every later "
+            "commission, statement or payout call, then call "
+            "nyp_compute_commission and show its totals_by_name. Only a sales "
+            "manager can rule on it."
         ),
     }
 
@@ -106,6 +117,7 @@ def record_ruling(
     next_step = f"Remove '{order_id}' from open_disputes."
     if split is not None:
         next_step += f" Pass split_overrides {{'{order_id}': {dict(split)}}} on later calls."
+    next_step += " Then call nyp_compute_commission and show its totals_by_name."
     return {
         "order_id": order_id,
         "ruled_by": ruled_by,
