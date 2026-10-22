@@ -75,6 +75,7 @@ def nyp_compute_commission(
     -------
     dict
         month, totals_dollars (staff_id → S$ string),
+        totals_by_name ("Name (staff_id)" → "S$x,xxx.xx"), for showing users,
         totals_cents (staff_id → int),
         holds (list of {order_id, reason}),
         line_count, hold_count, inputs_used, unconfirmed_bank_lines and,
@@ -93,19 +94,25 @@ def nyp_compute_commission(
 
     patched_orders = apply_split_overrides(period.orders, split_overrides, open_disputes)
 
+    staff = load_staff()
     result = compute_month(
         patched_orders,
         load_plans(),
-        load_staff(),
+        staff,
         month,
         period.prior_payouts,
         open_disputes=held if held else None,
     )
     totals = {k: v for k, v in result.totals().items() if v}
+    names = {s.staff_id: s.name for s in staff}
     return {
         "month": result.month,
         "totals_dollars": {sid: f"{cents / 100:,.2f}" for sid, cents in totals.items()},
         "totals_cents": totals,
+        "totals_by_name": {
+            f"{names.get(sid, sid)} ({sid})": f"S${cents / 100:,.2f}"
+            for sid, cents in totals.items()
+        },
         "holds": [
             {"order_id": h.order_id, "reason": h.reason}
             for h in result.holds

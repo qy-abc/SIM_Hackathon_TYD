@@ -162,6 +162,8 @@ def test_compute_commission_returns_totals():
     assert isinstance(result["totals_cents"], dict)
     assert result["line_count"] > 0
     assert all(v > 0 for v in result["totals_cents"].values())
+    assert result["totals_by_name"]["Ravi (S04)"].startswith("S$")
+    assert len(result["totals_by_name"]) == len(result["totals_cents"])
 
 
 def test_compute_commission_holds_open_dispute():

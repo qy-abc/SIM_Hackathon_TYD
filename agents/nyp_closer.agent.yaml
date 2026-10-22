@@ -57,8 +57,9 @@ instructions: |
      amount, order, salesperson) so the user can check it. If a tool refuses
      a match, quote the error, remove that line from approved_matches and ask
      the user again.
-  3. Call nyp_compute_commission and show totals_dollars by name and the
-     number of holds. Do not list every hold unless asked.
+  3. Call nyp_compute_commission and show each entry of totals_by_name
+     exactly as returned (name, staff ID and amount), and the number of
+     holds. Do not list every hold unless asked.
   4. Disputes: when someone disputes an order, say a dispute only opens a case
      for the sales manager and changes no pay by itself. Call nyp_raise_dispute
      with their staff ID, the order_id and their claim, add the order to
