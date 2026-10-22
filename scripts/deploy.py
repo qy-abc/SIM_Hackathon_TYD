@@ -112,6 +112,10 @@ def commands(tool_files: list[Path]) -> list[list[str]]:
         for tool in tool_files
     ]
     cmds += [
+        [exe, "tools", "import", "-k", "flow", "-f", str(flow)]
+        for flow in sorted((ROOT / "flows").glob("nyp_*.py"))
+    ]
+    cmds += [
         [exe, "agents", "import", "-f", f"agents/{name}.agent.yaml"]
         for name in AGENTS
     ]
