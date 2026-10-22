@@ -410,7 +410,7 @@ def test_demo_fallback_lets_unlinked_login_use_typed_owner_id(context, monkeypat
     _demo_fallback_on(monkeypatch, tmp_path)
     result = unwrap(nyp_approve_payout(MONTH, "S01", "approve", **_ruled_state(), context=context))
     assert result["decision"] == "approved"
-    assert result["total_dollars"] == "8,063.15"
+    assert result["decided_by"] == "S01"
     assert "demo mode: typed ID" in result["log_entry"]
 
 
