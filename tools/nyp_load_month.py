@@ -10,6 +10,7 @@ from typing import Optional
 
 from ibm_watsonx_orchestrate.agent_builder.tools import tool
 
+from tools._state import check_matches
 from closer.sources.loader import load_period
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
@@ -71,7 +72,9 @@ def nyp_load_month(
     approved: dict[int, str] = (
         {int(k): v for k, v in approved_matches.items()} if approved_matches else {}
     )
-    period = load_period(month, _data_dir(month, root), approved)
+    data_dir = _data_dir(month, root)
+    check_matches(month, data_dir, approved)
+    period = load_period(month, data_dir, approved)
     return {
         "month": period.month,
         "order_count": len(period.orders),

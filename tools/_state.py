@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping
 
 from closer.data.staff import load_staff
 from closer.data.models import Order
+from closer.sources.loader import load_period, suggest_matches
 
 
 def _now_iso() -> str:
@@ -224,3 +225,31 @@ def record_payout_decision(
             + (f": {reason}" if reason else "")
         ),
     }
+
+
+def check_matches(month: str, data_dir: Any, approved: Mapping[int, str]) -> None:
+    """Refuse a confirmed match that cannot be right, before any money is worked out.
+
+    Each confirmed bank line must be a credit that is waiting for a person, the
+    order must exist, and when Closer found candidates the order must be one of them.
+    """
+    if not approved:
+        return
+    base = load_period(month, data_dir)
+    waiting = {s.line_no: s for s in suggest_matches(base)}
+    known = {o.order_id for o in base.orders}
+    for line_no, order_id in approved.items():
+        s = waiting.get(line_no)
+        if s is None:
+            raise ValueError(
+                f"Bank line {line_no} is not a credit waiting to be matched. "
+                f"Lines waiting: {sorted(waiting)}."
+            )
+        if s.candidates and order_id not in s.candidates:
+            raise ValueError(
+                f"Bank line {line_no} ({s.description}, S${s.credit_cents / 100:,.2f}) "
+                f"can only be matched to {', '.join(s.candidates)}, not {order_id}. "
+                "Ask the user to confirm again."
+            )
+        if order_id not in known:
+            raise ValueError(f"Order {order_id} does not exist in {month}.")

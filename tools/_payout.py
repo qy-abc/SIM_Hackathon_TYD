@@ -8,7 +8,7 @@ from closer.data.staff import load_staff
 from closer.rules.commission import compute_month
 from closer.rules.plan import load_plans
 from closer.sources.loader import load_period
-from tools._state import apply_split_overrides, inputs_used as _inputs_used, unconfirmed_warning
+from tools._state import check_matches, apply_split_overrides, inputs_used as _inputs_used, unconfirmed_warning
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
 _GOLDEN_MONTH = "2026-09"  # data/golden/ holds this month only
@@ -40,7 +40,9 @@ def build_payout(
         {int(k): v for k, v in approved_matches.items()} if approved_matches else {}
     )
 
-    period = load_period(month, _data_dir(month, root), approved)
+    data_dir = _data_dir(month, root)
+    check_matches(month, data_dir, approved)
+    period = load_period(month, data_dir, approved)
     unconfirmed = unconfirmed_warning(period)
     if unconfirmed.get("warning"):
         raise ValueError(unconfirmed["warning"])
