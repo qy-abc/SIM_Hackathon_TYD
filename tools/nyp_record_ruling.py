@@ -18,7 +18,7 @@ from tools._state import record_ruling
     name="nyp_record_ruling",
     description=(
         "Close an open dispute and record the sales manager's ruling. "
-        "Only a staff member with the sales_manager role (e.g. Jason, S02) may "
+        "Only a staff member with the sales_manager role may "
         "call this tool — any other caller receives a PermissionError. "
         "The order must be in open_disputes. Nothing is saved: afterwards, remove "
         "the order from open_disputes and, if a split was given, pass it in "

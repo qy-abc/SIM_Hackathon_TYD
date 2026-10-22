@@ -84,5 +84,10 @@ def build_nyp_confirm_matches(aflow: Flow) -> Flow:
     ask.sequence(START, form, END)
 
     aflow.sequence(START, options, ask, END)
-    aflow.map_output("selected", 'flow["ask_admin"]["confirm"].output.matches')
+    # At runtime, form values are read by display name and field label, not
+    # by internal name (see the ADK's masking_test_flow example).
+    aflow.map_output(
+        "selected",
+        'flow["ask_admin"]["Confirm bank matches"].output["Bank credits and candidate orders"]',
+    )
     return aflow
