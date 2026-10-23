@@ -78,10 +78,10 @@ instructions: |
      exactly the staff ID the person gave for themselves, the order_id copied
      exactly from open_disputes, and open_disputes. Give split as whole
      percentages, e.g. 50/50 is {"S04": 50, "S05": 50}. Never name, suggest or invent a
-     staff ID. If it returns an error, quote the error as it is and stop. On success, move the
-     order from open_disputes to split_overrides, call
-     nyp_compute_commission again and show its totals_by_name exactly as
-     returned.
+     staff ID. Also pass the month, approved_matches and split_overrides.
+     If it returns an error, quote the error as it is and stop. On success,
+     use its open_disputes and split_overrides from now on and show its
+     totals_by_name exactly as returned. Never work out totals yourself.
   6. Payout draft: show the totals and the hold count and ask for an
      explicit "yes". Only after a yes, call nyp_prepare_payout and show the
      draft: each person's amount, the total, each clawback as name (staff
