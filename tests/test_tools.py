@@ -268,14 +268,21 @@ def test_raise_dispute_refuses_order_not_named_in_claim():
 def test_raise_dispute_returns_totals_with_order_held():
     """SJ's 23 Oct run: the agent said totals were unchanged after a dispute."""
     approved = _approve_all_singles(MONTH, DATA_ROOT)
+    # SJ's second run: the model left out month, so it must default.
     result = unwrap(nyp_raise_dispute("1043", "S04", "I helped close order 1043.",
-                                      month=MONTH, approved_matches=approved,
-                                      data_root=DATA_ROOT))
+                                      approved_matches=approved, data_root=DATA_ROOT))
     expected = unwrap(nyp_compute_commission(MONTH, approved_matches=approved,
                                              open_disputes=["1043"], data_root=DATA_ROOT))
     assert result["open_disputes"] == ["1043"]
     assert result["totals_by_name"] == expected["totals_by_name"]
     assert result["hold_count"] == expected["hold_count"]
+
+
+def test_raise_dispute_opens_before_matches_confirmed():
+    result = unwrap(nyp_raise_dispute("1043", "S04", "I helped close order 1043.",
+                                      data_root=DATA_ROOT))
+    assert result["status"] == "open"
+    assert "totals_by_name" not in result
 
 
 def test_raise_dispute_unknown_staff_raises():
