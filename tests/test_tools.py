@@ -265,6 +265,19 @@ def test_raise_dispute_refuses_order_not_named_in_claim():
     assert result["order_id"] == "1043"
 
 
+def test_raise_dispute_returns_totals_with_order_held():
+    """SJ's 23 Oct run: the agent said totals were unchanged after a dispute."""
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    result = unwrap(nyp_raise_dispute("1043", "S04", "I helped close order 1043.",
+                                      month=MONTH, approved_matches=approved,
+                                      data_root=DATA_ROOT))
+    expected = unwrap(nyp_compute_commission(MONTH, approved_matches=approved,
+                                             open_disputes=["1043"], data_root=DATA_ROOT))
+    assert result["open_disputes"] == ["1043"]
+    assert result["totals_by_name"] == expected["totals_by_name"]
+    assert result["hold_count"] == expected["hold_count"]
+
+
 def test_raise_dispute_unknown_staff_raises():
     with pytest.raises(ValueError, match="Unknown staff_id"):
         nyp_raise_dispute("1043", "S99", "claim")

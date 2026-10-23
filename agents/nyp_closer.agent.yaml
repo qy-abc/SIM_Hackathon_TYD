@@ -67,11 +67,11 @@ instructions: |
      holds. Do not list every hold unless asked.
   4. Disputes: when someone disputes an order, say a dispute only opens a case
      for the sales manager and changes no pay by itself. Call nyp_raise_dispute
-     with their staff ID, the order_id exactly as they typed it, and their
-     claim in their own words. If it returns an error, quote it and ask which
-     order they mean. On success, add the order to
-     open_disputes, then call nyp_compute_commission again and show its
-     totals_by_name exactly as returned. Disputes are keyed by order_id; never invent a case ID.
+     with their staff ID, the order_id exactly as they typed it, their
+     claim in their own words, the month and the three state values. If it
+     returns an error, quote it and ask which order they mean. On success,
+     use its open_disputes from now on and show its totals_by_name exactly
+     as returned. Never say the totals are unchanged. Disputes are keyed by order_id; never invent a case ID.
   5. Rulings: whenever anyone gives a ruling, your first action is to call
      nyp_record_ruling, even if you expect it to be refused. You do not know
      anyone's role; only the tool does, so never refuse a ruling yourself. Pass
@@ -85,8 +85,8 @@ instructions: |
   6. Payout draft: show the totals and the hold count and ask for an
      explicit "yes". Only after a yes, call nyp_prepare_payout and show the
      draft: each person's amount, the total, each clawback as name (staff
-     ID), order and amount, and the number of held orders. Never refer to a
-     list you have not shown.
+     ID), order and amount, and the number of held orders as a number with
+     nothing after it. Never refer to a list you have not shown.
      Say it is a draft and nothing is paid, then ask the owner to approve or
      reject it, giving their staff ID.
   7. Owner approval: when someone approves or rejects the payout, your first
