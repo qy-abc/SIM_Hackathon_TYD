@@ -355,6 +355,22 @@ def test_record_ruling_unknown_staff_in_split_raises():
                           split={"S04": 50, "S99": 50}, open_disputes=["1043"])
 
 
+
+
+def test_record_ruling_returns_totals_with_split_applied():
+    """SJ's 23 Oct run: the agent showed made-up totals after the ruling."""
+    approved = _approve_all_singles(MONTH, DATA_ROOT)
+    result = unwrap(nyp_record_ruling("1043", "S02", "Shared close, 50/50.",
+                                      split={"S04": 50, "S05": 50},
+                                      open_disputes=["1043"],
+                                      approved_matches=approved, data_root=DATA_ROOT))
+    expected = unwrap(nyp_compute_commission(MONTH, approved_matches=approved,
+                                             split_overrides={"1043": {"S04": 50, "S05": 50}},
+                                             data_root=DATA_ROOT))
+    assert result["open_disputes"] == []
+    assert result["split_overrides"] == {"1043": {"S04": 50, "S05": 50}}
+    assert result["totals_by_name"] == expected["totals_by_name"]
+
 # ---------------------------------------------------------------------------
 # nyp_prepare_payout
 # ---------------------------------------------------------------------------
