@@ -28,7 +28,7 @@ def nyp_raise_dispute(
     order_id: str,
     raised_by: str,
     claim: str,
-    month: Optional[str] = None,
+    month: str = "2026-09",
     approved_matches: Optional[dict[str, str]] = None,
     open_disputes: Optional[list[str]] = None,
     split_overrides: Optional[dict[str, dict[str, float]]] = None,
@@ -46,21 +46,27 @@ def nyp_raise_dispute(
         Free-text description of the claim, e.g.
         ``"I closed this sale jointly with S05 — split should be 50/50."``.
     month, approved_matches, open_disputes, split_overrides:
-        The close state so far. When month is given, the totals are
-        recalculated with this order held.
+        The close state so far. The totals are recalculated with this
+        order held; month defaults to 2026-09, the only month with data.
     data_root:
         Override the default ``data/`` directory (useful in tests).
 
     Returns
     -------
     dict
-        order_id, raised_by, claim, raised_at, status, next_step and, when
-        month is given, open_disputes, totals_by_name and hold_count.
+        order_id, raised_by, claim, raised_at, status, next_step and, once
+        every bank line is confirmed, open_disputes, totals_by_name and
+        hold_count.
     """
     record = raise_dispute(order_id, raised_by, claim)
-    if month:
-        disputes = list(dict.fromkeys([*(open_disputes or []), order_id]))
+    disputes = list(dict.fromkeys([*(open_disputes or []), order_id]))
+    try:
         payout = build_payout(month, approved_matches, disputes, split_overrides, data_root)
+    except (ValueError, FileNotFoundError):
+        # Bank lines not confirmed yet, or no data for that month: the
+        # dispute still opens; the totals come from nyp_compute_commission.
+        payout = None
+    if payout:
         record["open_disputes"] = disputes
         record["totals_by_name"] = {
             f"{p['name']} ({p['staff_id']})": f"S${p['amount_dollars']}"
